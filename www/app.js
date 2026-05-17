@@ -70,6 +70,10 @@ const dom = {
   codeCount: document.querySelector("#codeCount"),
   mediaCount: document.querySelector("#mediaCount"),
   dashboardGrid: document.querySelector("#dashboardGrid"),
+  statisticsGrid: document.querySelector("#statisticsGrid"),
+  statisticsLearning: document.querySelector("#statisticsLearning"),
+  statisticsJournal: document.querySelector("#statisticsJournal"),
+  statisticsPlan: document.querySelector("#statisticsPlan"),
   statusList: document.querySelector("#statusList"),
   installBtn: document.querySelector("#installBtn"),
   exportAllBtn: document.querySelector("#exportAllBtn"),
@@ -119,6 +123,7 @@ const dom = {
     media: document.querySelector("#mediaView"),
     journal: document.querySelector("#journalView"),
     assistant: document.querySelector("#assistantView"),
+    statistics: document.querySelector("#statisticsView"),
     status: document.querySelector("#statusView")
   },
   dialog: document.querySelector("#itemDialog"),
@@ -183,6 +188,7 @@ const state = {
   fullscreenObjectUrl: "",
   fullscreenObjectUrlFileId: "",
   fullscreenFeedObjectUrls: new Set(),
+  thumbnailCache: new Map(),
   activeFullscreenItem: null,
   autoTitleFromFile: false,
   pendingJournalFiles: [],
@@ -455,7 +461,7 @@ function renderPillSet(container, values, activeValue, onPick) {
 }
 
 function setView(view, shouldRender = true) {
-  state.view = ["library", "code", "media", "journal", "assistant", "status"].includes(view) ? view : "library";
+  state.view = ["library", "code", "media", "journal", "assistant", "statistics", "status"].includes(view) ? view : "library";
   Object.entries(dom.views).forEach(([key, section]) => {
     const isActive = key === state.view;
     section.hidden = !isActive;
@@ -480,6 +486,7 @@ function render() {
   renderGrid(dom.codeGrid, codeItems);
   renderGrid(dom.mediaGrid, mediaItems);
   renderDashboard(allMatches);
+  renderStatistics(allMatches);
   renderJournals();
   renderAssistantPanel();
 
@@ -683,11 +690,7 @@ function renderMediaSlot(slot, item) {
   slot.dataset.itemId = item.id;
 
   if (isDocumentItem(item)) {
-    const fallback = document.createElement("div");
-    fallback.className = "media-fallback document-fallback";
-    fallback.textContent = getDocumentMark(item);
-    fallback.addEventListener("click", () => showFullscreenViewer(item));
-    slot.append(fallback, makeMediaLabel(getDocumentType(item)));
+    renderDocumentSlot(slot, item);
     return;
   }
 
@@ -737,13 +740,117 @@ function renderImageSlot(slot, item, source) {
 
 function renderVideoSlot(slot, item, source) {
   slot.replaceChildren();
-  const video = document.createElement("video");
-  video.controls = false;
-  video.preload = "metadata";
-  video.playsInline = true;
-  video.src = source;
-  video.addEventListener("click", () => showFullscreenViewer(item));
-  slot.append(video, makeMediaLabel("Video"));
+  const thumb = document.createElement("button");
+  thumb.className = "video-thumb";
+  thumb.type = "button";
+  thumb.setAttribute("aria-label", `Putar ${item.title || "video"}`);
+  thumb.append(makeVideoFallback(item));
+  thumb.addEventListener("click", () => showFullscreenViewer(item));
+  slot.append(thumb, makeMediaLabel("Video"));
+
+  const cacheKey = item.fileHash || item.fileId || item.mediaUrl || source;
+  if (cacheKey && state.thumbnailCache?.has(cacheKey)) {
+    applyVideoThumbnail(thumb, state.thumbnailCache.get(cacheKey), item);
+    return;
+  }
+
+  generateVideoThumbnail(source).then((poster) => {
+    if (!poster || slot.dataset.itemId !== item.id) return;
+    if (cacheKey && state.thumbnailCache) state.thumbnailCache.set(cacheKey, poster);
+    applyVideoThumbnail(thumb, poster, item);
+  }).catch(() => {});
+}
+
+function makeVideoFallback(item) {
+  const box = document.createElement("div");
+  box.className = "video-thumb-fallback";
+
+  const play = document.createElement("span");
+  play.className = "video-play-mark";
+  play.textContent = "▶";
+
+  const text = document.createElement("small");
+  text.textContent = item.mediaName || item.title || "Video";
+
+  box.append(play, text);
+  return box;
+}
+
+function applyVideoThumbnail(container, poster, item) {
+  container.replaceChildren();
+  const image = document.createElement("img");
+  image.src = poster;
+  image.alt = item.title || "Thumbnail video";
+  const play = document.createElement("span");
+  play.className = "video-play-overlay";
+  play.textContent = "▶";
+  container.append(image, play);
+}
+
+function generateVideoThumbnail(source) {
+  return new Promise((resolve, reject) => {
+    if (!source) return reject(new Error("source kosong"));
+    const video = document.createElement("video");
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      video.removeAttribute("src");
+      video.load();
+      resolve(value);
+    };
+    const fail = () => {
+      if (settled) return;
+      settled = true;
+      video.removeAttribute("src");
+      video.load();
+      reject(new Error("thumbnail gagal"));
+    };
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+    video.crossOrigin = "anonymous";
+    video.addEventListener("loadeddata", () => {
+      try {
+        const width = video.videoWidth || 320;
+        const height = video.videoHeight || 180;
+        if (!width || !height) return fail();
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.min(640, width);
+        canvas.height = Math.round(canvas.width * height / width);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        finish(canvas.toDataURL("image/jpeg", 0.78));
+      } catch {
+        fail();
+      }
+    }, { once: true });
+    video.addEventListener("error", fail, { once: true });
+    video.src = source;
+    window.setTimeout(fail, 3200);
+  });
+}
+
+function renderDocumentSlot(slot, item) {
+  slot.replaceChildren();
+  const button = document.createElement("button");
+  button.className = `document-thumb document-thumb-${getDocumentType(item).toLowerCase()}`;
+  button.type = "button";
+  button.setAttribute("aria-label", `Buka ${getDocumentName(item)}`);
+  button.addEventListener("click", () => showFullscreenViewer(item));
+
+  const mark = document.createElement("strong");
+  mark.textContent = getDocumentMark(item);
+
+  const lines = document.createElement("span");
+  lines.className = "document-thumb-lines";
+  lines.innerHTML = "<i></i><i></i><i></i>";
+
+  const name = document.createElement("small");
+  name.textContent = getDocumentName(item);
+
+  button.append(mark, lines, name);
+  slot.append(button, makeMediaLabel(getDocumentType(item)));
 }
 
 function renderLoadingSlot(slot, item) {
@@ -837,6 +944,97 @@ function renderDashboard(items) {
     row.append(top, track);
     dom.statusList.append(row);
   });
+}
+
+
+function renderStatistics(items) {
+  if (!dom.statisticsGrid || !dom.statisticsLearning || !dom.statisticsJournal || !dom.statisticsPlan) return;
+
+  const totals = {
+    total: items.length,
+    video: items.filter((item) => getItemFileType(item) === "Video").length,
+    pdf: items.filter((item) => getItemFileType(item) === "PDF").length,
+    image: items.filter((item) => getItemFileType(item) === "Gambar").length,
+    word: items.filter((item) => getItemFileType(item) === "Word").length,
+    code: items.filter((item) => getItemFileType(item) === "Kode").length,
+    journal: state.journals.length
+  };
+
+  const learned = items.filter((item) => ["Dipelajari", "Dipakai", "Selesai"].includes(item.status)).length;
+  const unread = items.filter((item) => item.status === "Belum dibaca").length;
+  const progress = totals.total ? Math.round((learned / totals.total) * 100) : 0;
+  const wins = state.journals.filter((journal) => journal.result === "Win").length;
+  const losses = state.journals.filter((journal) => journal.result === "Loss").length;
+  const be = state.journals.filter((journal) => journal.result === "BE").length;
+  const completedTrades = wins + losses + be;
+  const winrate = completedTrades ? Math.round((wins / completedTrades) * 100) : 0;
+
+  dom.statisticsGrid.replaceChildren(
+    makeStatCard("Total Materi", totals.total),
+    makeStatCard("Video", totals.video),
+    makeStatCard("PDF", totals.pdf),
+    makeStatCard("Gambar", totals.image),
+    makeStatCard("Word", totals.word),
+    makeStatCard("Kode", totals.code),
+    makeStatCard("Jurnal", totals.journal),
+    makeStatCard("Win Rate", `${winrate}%`)
+  );
+
+  dom.statisticsLearning.replaceChildren(
+    makeProgressBlock("Progress Belajar", progress, `${learned} selesai / ${unread} belum dibaca`),
+    makeProgressBlock("Materi Dipakai", totals.total ? Math.round((items.filter((item) => item.status === "Dipakai").length / totals.total) * 100) : 0, `${items.filter((item) => item.status === "Dipakai").length} materi dipakai`)
+  );
+
+  dom.statisticsJournal.replaceChildren(
+    makeProgressBlock("Win", completedTrades ? Math.round((wins / completedTrades) * 100) : 0, `${wins} jurnal win`),
+    makeProgressBlock("Loss", completedTrades ? Math.round((losses / completedTrades) * 100) : 0, `${losses} jurnal loss`),
+    makeProgressBlock("BE", completedTrades ? Math.round((be / completedTrades) * 100) : 0, `${be} jurnal BE`)
+  );
+
+  const plan = document.createElement("ul");
+  plan.className = "feature-plan-list";
+  [
+    "Perbaikan PDF Viewer",
+    "Thumbnail Video",
+    "Thumbnail PDF / Dokumen",
+    "Navigasi Sidebar Kiri",
+    "Dashboard Statistik",
+    "Bulk Delete / Checklist"
+  ].forEach((text) => {
+    const item = document.createElement("li");
+    item.textContent = text;
+    plan.append(item);
+  });
+  dom.statisticsPlan.replaceChildren(plan);
+}
+
+function makeProgressBlock(label, percent, detail) {
+  const block = document.createElement("div");
+  block.className = "stat-progress-block";
+
+  const top = document.createElement("div");
+  top.className = "status-row-top";
+
+  const name = document.createElement("span");
+  name.textContent = label;
+
+  const amount = document.createElement("strong");
+  amount.textContent = `${percent}%`;
+
+  const track = document.createElement("div");
+  track.className = "progress-track";
+
+  const bar = document.createElement("div");
+  bar.className = "progress-bar";
+  bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+
+  const meta = document.createElement("p");
+  meta.textContent = detail;
+
+  top.append(name, amount);
+  track.append(bar);
+  block.append(top, track, meta);
+  return block;
 }
 
 function makeStatCard(label, value) {
@@ -2476,37 +2674,64 @@ async function getFileBlob(item) {
 async function renderPdfReader(item) {
   const shell = document.createElement("article");
   shell.className = "offline-reader pdf-reader";
+
   const title = document.createElement("h3");
   title.textContent = getDocumentName(item);
+  shell.append(title);
+
   const source = await getFullscreenSource(item);
   if (source) {
+    const frameWrap = document.createElement("div");
+    frameWrap.className = "pdf-frame-wrap";
     const frame = document.createElement("iframe");
     frame.className = "fullscreen-pdf";
     frame.title = item.title || getDocumentName(item);
     frame.src = source;
-    shell.append(title, frame);
-  } else {
-    shell.append(title);
+    frameWrap.append(frame);
+    shell.append(frameWrap);
   }
+
+  const actions = document.createElement("div");
+  actions.className = "fullscreen-doc-actions";
+
+  const downloadButton = document.createElement("button");
+  downloadButton.className = "ghost-button";
+  downloadButton.type = "button";
+  downloadButton.textContent = "Download";
+  downloadButton.addEventListener("click", () => downloadFullscreenItem(item));
+
+  const openButton = document.createElement("button");
+  openButton.className = "primary-button";
+  openButton.type = "button";
+  openButton.textContent = "Buka PDF";
+  openButton.addEventListener("click", () => openFullscreenItemInNewTab(item));
+
+  actions.append(downloadButton, openButton);
+  shell.append(actions);
+
   const text = item.documentText || await (async () => {
     const blob = await getFileBlob(item);
     return blob ? extractPdfText(blob).catch(() => "") : "";
   })();
+
+  const details = document.createElement("details");
+  details.open = Boolean(text);
+  const summary = document.createElement("summary");
+  summary.textContent = text ? "Teks PDF offline" : "Catatan PDF";
+  details.append(summary);
+
   if (text) {
-    const details = document.createElement("details");
-    details.open = true;
-    const summary = document.createElement("summary");
-    summary.textContent = "Teks PDF offline";
     const pre = document.createElement("pre");
     pre.textContent = text;
-    details.append(summary, pre);
-    shell.append(details);
+    details.append(pre);
   } else {
     const note = document.createElement("p");
     note.className = "reader-note";
-    note.textContent = "PDF ditampilkan dari file offline. Jika layar PDF kosong di browser HP, gunakan tombol Buka atau Download.";
-    shell.append(note);
+    note.textContent = "Jika preview PDF kosong di Android WebView, tekan Buka PDF atau Download. File tetap tersimpan aman di aplikasi.";
+    details.append(note);
   }
+
+  shell.append(details);
   dom.fullscreenStage.replaceChildren(shell);
 }
 

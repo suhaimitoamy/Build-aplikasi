@@ -13,6 +13,58 @@
   <body>
     <div class="app-shell">
       <header class="app-header">
+        <details class="side-menu" id="sideMenu">
+          <summary class="icon-button side-menu-toggle" aria-label="Buka navigasi">
+            <span class="menu-icon" aria-hidden="true"></span>
+          </summary>
+          <button class="side-menu-backdrop" type="button" aria-label="Tutup navigasi" onclick="this.closest('details').removeAttribute('open')"></button>
+          <aside class="side-drawer" aria-label="Navigasi samping">
+            <div class="side-drawer-head">
+              <div class="brand-mark" aria-hidden="true">TL</div>
+              <div>
+                <span>Quick Menu</span>
+                <h2>Trading Library</h2>
+              </div>
+            </div>
+
+            <nav class="side-drawer-menu" aria-label="Menu cepat">
+              <button class="nav-button side-nav-button" type="button" data-view="status" onclick="this.closest('details').removeAttribute('open')">
+                <span class="nav-icon status-icon" aria-hidden="true"></span>
+                <span>Dashboard / Status</span>
+              </button>
+              <button class="nav-button side-nav-button" type="button" data-view="statistics" onclick="this.closest('details').removeAttribute('open')">
+                <span class="nav-icon statistics-icon" aria-hidden="true"></span>
+                <span>Statistik</span>
+              </button>
+              <button class="nav-button side-nav-button is-active" type="button" data-view="library" onclick="this.closest('details').removeAttribute('open')">
+                <span class="nav-icon library-icon" aria-hidden="true"></span>
+                <span>Library</span>
+              </button>
+              <button class="nav-button side-nav-button" type="button" data-view="code" onclick="this.closest('details').removeAttribute('open')">
+                <span class="nav-icon code-icon" aria-hidden="true"></span>
+                <span>Kode Indikator</span>
+              </button>
+              <button class="nav-button side-nav-button" type="button" data-view="media" onclick="this.closest('details').removeAttribute('open')">
+                <span class="nav-icon media-icon" aria-hidden="true"></span>
+                <span>Media</span>
+              </button>
+              <button class="nav-button side-nav-button" type="button" data-view="journal" onclick="this.closest('details').removeAttribute('open')">
+                <span class="nav-icon journal-icon" aria-hidden="true"></span>
+                <span>Jurnal Trading</span>
+              </button>
+              <button class="nav-button side-nav-button" type="button" data-view="assistant" onclick="this.closest('details').removeAttribute('open')">
+                <span class="nav-icon assistant-icon" aria-hidden="true"></span>
+                <span>Asisten AI</span>
+              </button>
+            </nav>
+
+            <div class="side-drawer-note">
+              <strong>Akses cepat</strong>
+              <span>Status, statistik, kode indikator, backup, restore, PIN, dan menu tambahan berada di sidebar.</span>
+            </div>
+          </aside>
+        </details>
+
         <div class="brand">
           <div class="brand-mark" aria-hidden="true">TL</div>
           <div class="brand-copy">
@@ -277,10 +329,35 @@
           </div>
         </section>
 
+
+        <section class="view" id="statisticsView" aria-labelledby="statisticsHeading" hidden>
+          <div class="section-head">
+            <div>
+              <h2 id="statisticsHeading">Statistik</h2>
+              <p>Ringkasan materi, progress belajar, dan jurnal trading</p>
+            </div>
+          </div>
+          <div class="statistics-grid" id="statisticsGrid"></div>
+          <div class="statistics-panel-grid">
+            <section class="statistics-panel">
+              <h3>Progress Belajar</h3>
+              <div id="statisticsLearning"></div>
+            </section>
+            <section class="statistics-panel">
+              <h3>Jurnal Trading</h3>
+              <div id="statisticsJournal"></div>
+            </section>
+            <section class="statistics-panel feature-plan-panel">
+              <h3>Rencana Fitur Berikutnya</h3>
+              <div id="statisticsPlan"></div>
+            </section>
+          </div>
+        </section>
+
         <section class="view" id="statusView" aria-labelledby="statusHeading" hidden>
           <div class="section-head">
             <div>
-              <h2 id="statusHeading">Dashboard</h2>
+              <h2 id="statusHeading">Dashboard / Status</h2>
               <p id="statusCount">Ringkasan library</p>
             </div>
             <div class="section-actions">
@@ -313,10 +390,6 @@
         <button class="nav-button" type="button" data-view="assistant">
           <span class="nav-icon assistant-icon" aria-hidden="true"></span>
           <span>Asisten</span>
-        </button>
-        <button class="nav-button" type="button" data-view="status">
-          <span class="nav-icon status-icon" aria-hidden="true"></span>
-          <span>Status</span>
         </button>
       </nav>
     </div>

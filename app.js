@@ -70,6 +70,10 @@ const dom = {
   codeCount: document.querySelector("#codeCount"),
   mediaCount: document.querySelector("#mediaCount"),
   dashboardGrid: document.querySelector("#dashboardGrid"),
+  statisticsGrid: document.querySelector("#statisticsGrid"),
+  statisticsLearning: document.querySelector("#statisticsLearning"),
+  statisticsJournal: document.querySelector("#statisticsJournal"),
+  statisticsPlan: document.querySelector("#statisticsPlan"),
   statusList: document.querySelector("#statusList"),
   installBtn: document.querySelector("#installBtn"),
   exportAllBtn: document.querySelector("#exportAllBtn"),
@@ -119,6 +123,7 @@ const dom = {
     media: document.querySelector("#mediaView"),
     journal: document.querySelector("#journalView"),
     assistant: document.querySelector("#assistantView"),
+    statistics: document.querySelector("#statisticsView"),
     status: document.querySelector("#statusView")
   },
   dialog: document.querySelector("#itemDialog"),
@@ -455,7 +460,7 @@ function renderPillSet(container, values, activeValue, onPick) {
 }
 
 function setView(view, shouldRender = true) {
-  state.view = ["library", "code", "media", "journal", "assistant", "status"].includes(view) ? view : "library";
+  state.view = ["library", "code", "media", "journal", "assistant", "statistics", "status"].includes(view) ? view : "library";
   Object.entries(dom.views).forEach(([key, section]) => {
     const isActive = key === state.view;
     section.hidden = !isActive;
@@ -480,6 +485,7 @@ function render() {
   renderGrid(dom.codeGrid, codeItems);
   renderGrid(dom.mediaGrid, mediaItems);
   renderDashboard(allMatches);
+  renderStatistics(allMatches);
   renderJournals();
   renderAssistantPanel();
 
@@ -837,6 +843,97 @@ function renderDashboard(items) {
     row.append(top, track);
     dom.statusList.append(row);
   });
+}
+
+
+function renderStatistics(items) {
+  if (!dom.statisticsGrid || !dom.statisticsLearning || !dom.statisticsJournal || !dom.statisticsPlan) return;
+
+  const totals = {
+    total: items.length,
+    video: items.filter((item) => getItemFileType(item) === "Video").length,
+    pdf: items.filter((item) => getItemFileType(item) === "PDF").length,
+    image: items.filter((item) => getItemFileType(item) === "Gambar").length,
+    word: items.filter((item) => getItemFileType(item) === "Word").length,
+    code: items.filter((item) => getItemFileType(item) === "Kode").length,
+    journal: state.journals.length
+  };
+
+  const learned = items.filter((item) => ["Dipelajari", "Dipakai", "Selesai"].includes(item.status)).length;
+  const unread = items.filter((item) => item.status === "Belum dibaca").length;
+  const progress = totals.total ? Math.round((learned / totals.total) * 100) : 0;
+  const wins = state.journals.filter((journal) => journal.result === "Win").length;
+  const losses = state.journals.filter((journal) => journal.result === "Loss").length;
+  const be = state.journals.filter((journal) => journal.result === "BE").length;
+  const completedTrades = wins + losses + be;
+  const winrate = completedTrades ? Math.round((wins / completedTrades) * 100) : 0;
+
+  dom.statisticsGrid.replaceChildren(
+    makeStatCard("Total Materi", totals.total),
+    makeStatCard("Video", totals.video),
+    makeStatCard("PDF", totals.pdf),
+    makeStatCard("Gambar", totals.image),
+    makeStatCard("Word", totals.word),
+    makeStatCard("Kode", totals.code),
+    makeStatCard("Jurnal", totals.journal),
+    makeStatCard("Win Rate", `${winrate}%`)
+  );
+
+  dom.statisticsLearning.replaceChildren(
+    makeProgressBlock("Progress Belajar", progress, `${learned} selesai / ${unread} belum dibaca`),
+    makeProgressBlock("Materi Dipakai", totals.total ? Math.round((items.filter((item) => item.status === "Dipakai").length / totals.total) * 100) : 0, `${items.filter((item) => item.status === "Dipakai").length} materi dipakai`)
+  );
+
+  dom.statisticsJournal.replaceChildren(
+    makeProgressBlock("Win", completedTrades ? Math.round((wins / completedTrades) * 100) : 0, `${wins} jurnal win`),
+    makeProgressBlock("Loss", completedTrades ? Math.round((losses / completedTrades) * 100) : 0, `${losses} jurnal loss`),
+    makeProgressBlock("BE", completedTrades ? Math.round((be / completedTrades) * 100) : 0, `${be} jurnal BE`)
+  );
+
+  const plan = document.createElement("ul");
+  plan.className = "feature-plan-list";
+  [
+    "Perbaikan PDF Viewer",
+    "Thumbnail Video",
+    "Thumbnail PDF / Dokumen",
+    "Navigasi Sidebar Kiri",
+    "Dashboard Statistik",
+    "Bulk Delete / Checklist"
+  ].forEach((text) => {
+    const item = document.createElement("li");
+    item.textContent = text;
+    plan.append(item);
+  });
+  dom.statisticsPlan.replaceChildren(plan);
+}
+
+function makeProgressBlock(label, percent, detail) {
+  const block = document.createElement("div");
+  block.className = "stat-progress-block";
+
+  const top = document.createElement("div");
+  top.className = "status-row-top";
+
+  const name = document.createElement("span");
+  name.textContent = label;
+
+  const amount = document.createElement("strong");
+  amount.textContent = `${percent}%`;
+
+  const track = document.createElement("div");
+  track.className = "progress-track";
+
+  const bar = document.createElement("div");
+  bar.className = "progress-bar";
+  bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+
+  const meta = document.createElement("p");
+  meta.textContent = detail;
+
+  top.append(name, amount);
+  track.append(bar);
+  block.append(top, track, meta);
+  return block;
 }
 
 function makeStatCard(label, value) {
