@@ -6,66 +6,16 @@
     <meta name="theme-color" content="#050806">
     <meta name="description" content="Trading Library Manager untuk mengelola materi, indikator, gambar chart, video pembelajaran, dan dokumen trading.">
     <title>Trading Library Manager</title>
-    <link rel="manifest" href="./manifest.json?v=20260517drawerfix1">
-    <link rel="stylesheet" href="./style.css?v=20260517drawerfix1">
+    <link rel="manifest" href="./manifest.json?v=20260517statssidebarfinal">
+    <link rel="stylesheet" href="./style.css?v=20260517statssidebarfinal">
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'%3E%3Crect width='96' height='96' rx='24' fill='%23050806'/%3E%3Cpath d='M20 62h12V36H20v26Zm22 0h12V24H42v38Zm22 0h12V44H64v18Z' fill='%2339ff88'/%3E%3Cpath d='M18 72h60' stroke='%23f4fff7' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E">
   </head>
   <body>
     <div class="app-shell">
       <header class="app-header">
-        <div class="side-menu" id="sideMenu">
-          <button class="icon-button side-menu-toggle" type="button" aria-label="Buka navigasi" onclick="document.body.classList.add('drawer-open')">
-            <span class="menu-icon" aria-hidden="true"></span>
-          </button>
-          <button class="side-menu-backdrop" type="button" aria-label="Tutup navigasi" onclick="document.body.classList.remove('drawer-open')"></button>
-          <aside class="side-drawer" aria-label="Navigasi samping">
-            <div class="side-drawer-head">
-              <div class="brand-mark" aria-hidden="true">TL</div>
-              <div>
-                <span>Quick Menu</span>
-                <h2>Trading Library</h2>
-              </div>
-              <button class="icon-button side-drawer-close" type="button" aria-label="Tutup navigasi" onclick="document.body.classList.remove('drawer-open')">×</button>
-            </div>
-
-            <nav class="side-drawer-menu" aria-label="Menu cepat">
-              <button class="nav-button side-nav-button" type="button" data-view="status" onclick="document.body.classList.remove('drawer-open')">
-                <span class="nav-icon status-icon" aria-hidden="true"></span>
-                <span>Dashboard / Status</span>
-              </button>
-              <button class="nav-button side-nav-button" type="button" data-view="statistics" onclick="document.body.classList.remove('drawer-open')">
-                <span class="nav-icon statistics-icon" aria-hidden="true"></span>
-                <span>Statistik</span>
-              </button>
-              <button class="nav-button side-nav-button is-active" type="button" data-view="library" onclick="document.body.classList.remove('drawer-open')">
-                <span class="nav-icon library-icon" aria-hidden="true"></span>
-                <span>Library</span>
-              </button>
-              <button class="nav-button side-nav-button" type="button" data-view="code" onclick="document.body.classList.remove('drawer-open')">
-                <span class="nav-icon code-icon" aria-hidden="true"></span>
-                <span>Kode Indikator</span>
-              </button>
-              <button class="nav-button side-nav-button" type="button" data-view="media" onclick="document.body.classList.remove('drawer-open')">
-                <span class="nav-icon media-icon" aria-hidden="true"></span>
-                <span>Media</span>
-              </button>
-              <button class="nav-button side-nav-button" type="button" data-view="journal" onclick="document.body.classList.remove('drawer-open')">
-                <span class="nav-icon journal-icon" aria-hidden="true"></span>
-                <span>Jurnal Trading</span>
-              </button>
-              <button class="nav-button side-nav-button" type="button" data-view="assistant" onclick="document.body.classList.remove('drawer-open')">
-                <span class="nav-icon assistant-icon" aria-hidden="true"></span>
-                <span>Asisten AI</span>
-              </button>
-            </nav>
-
-            <div class="side-drawer-note">
-              <strong>Akses cepat</strong>
-              <span>Status, statistik, kode indikator, backup, restore, PIN, dan menu tambahan berada di sidebar.</span>
-            </div>
-          </aside>
-        </div>
-
+        <button class="icon-button menu-button" id="openSidebarBtn" type="button" aria-label="Buka navigasi">
+          <span class="menu-icon" aria-hidden="true"></span>
+        </button>
         <div class="brand">
           <div class="brand-mark" aria-hidden="true">TL</div>
           <div class="brand-copy">
@@ -80,6 +30,50 @@
           <button class="add-button" id="openFormBtn" type="button" aria-label="Tambah data">+</button>
         </div>
       </header>
+
+      <div class="sidebar-backdrop" id="sidebarBackdrop" hidden></div>
+      <aside class="side-drawer" id="sideDrawer" aria-hidden="true" aria-label="Navigasi samping">
+        <div class="side-drawer-head">
+          <div class="side-drawer-brand">
+            <div class="brand-mark" aria-hidden="true">TL</div>
+            <div>
+              <span>Quick Menu</span>
+              <h2>Trading Library</h2>
+            </div>
+          </div>
+          <button class="icon-button side-close-button" id="closeSidebarBtn" type="button" aria-label="Tutup navigasi">×</button>
+        </div>
+        <nav class="side-drawer-menu" aria-label="Menu cepat">
+          <button class="side-nav-button" type="button" data-view="status">
+            <span class="nav-icon status-icon" aria-hidden="true"></span>
+            <span>Dashboard / Status</span>
+          </button>
+          <button class="side-nav-button" type="button" data-view="statistics">
+            <span class="nav-icon statistics-icon" aria-hidden="true"></span>
+            <span>Statistik</span>
+          </button>
+          <button class="side-nav-button is-active" type="button" data-view="library">
+            <span class="nav-icon library-icon" aria-hidden="true"></span>
+            <span>Library</span>
+          </button>
+          <button class="side-nav-button" type="button" data-view="media">
+            <span class="nav-icon media-icon" aria-hidden="true"></span>
+            <span>Media</span>
+          </button>
+          <button class="side-nav-button" type="button" data-view="journal">
+            <span class="nav-icon journal-icon" aria-hidden="true"></span>
+            <span>Jurnal</span>
+          </button>
+          <button class="side-nav-button" type="button" data-view="assistant">
+            <span class="nav-icon assistant-icon" aria-hidden="true"></span>
+            <span>Asisten</span>
+          </button>
+        </nav>
+        <div class="side-drawer-footer">
+          <strong>Menu tambahan</strong>
+          <span>Backup, Restore, PIN, arsip, dan ringkasan status berada di Dashboard / Status.</span>
+        </div>
+      </aside>
 
       <section class="control-panel" aria-label="Filter dan pencarian">
         <label class="search-box" for="searchInput">
@@ -335,24 +329,10 @@
           <div class="section-head">
             <div>
               <h2 id="statisticsHeading">Statistik</h2>
-              <p>Ringkasan materi, progress belajar, dan jurnal trading</p>
+              <p id="statisticsCount">Ringkasan performa library dan jurnal</p>
             </div>
           </div>
-          <div class="statistics-grid" id="statisticsGrid"></div>
-          <div class="statistics-panel-grid">
-            <section class="statistics-panel">
-              <h3>Progress Belajar</h3>
-              <div id="statisticsLearning"></div>
-            </section>
-            <section class="statistics-panel">
-              <h3>Jurnal Trading</h3>
-              <div id="statisticsJournal"></div>
-            </section>
-            <section class="statistics-panel feature-plan-panel">
-              <h3>Rencana Fitur Berikutnya</h3>
-              <div id="statisticsPlan"></div>
-            </section>
-          </div>
+          <div class="statistics-page" id="statisticsViewContent"></div>
         </section>
 
         <section class="view" id="statusView" aria-labelledby="statusHeading" hidden>
@@ -564,7 +544,7 @@
       </div>
     </dialog>
 
-    <script src="./jszip.min.js?v=20260517drawerfix1" defer></script>
-    <script src="./app.js?v=20260517drawerfix1" defer></script>
+    <script src="./jszip.min.js?v=20260517statssidebarfinal" defer></script>
+    <script src="./app.js?v=20260517statssidebarfinal" defer></script>
   </body>
 </html>

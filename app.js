@@ -5,7 +5,7 @@ const SETTINGS_KEY = "tradingLibraryManager.settings.v1";
 const DB_NAME = "tradingLibraryManager.files";
 const DB_VERSION = 1;
 const FILE_STORE = "files";
-const APP_VERSION = "20260517drawerfix1";
+const APP_VERSION = "20260517statssidebarfinal";
 const JOURNAL_STORAGE_KEY = "tradingLibraryManager.journals.v1";
 const ASSISTANT_SETTINGS_KEY = "tradingLibraryManager.assistantSettings.v1";
 const INSIGHT_CACHE_KEY = "tradingLibraryManager.insightCache.v1";
@@ -54,6 +54,11 @@ const dom = {
   showArchivedInput: document.querySelector("#showArchivedInput"),
   searchInput: document.querySelector("#searchInput"),
   focusSearchBtn: document.querySelector("#focusSearchBtn"),
+  openSidebarBtn: document.querySelector("#openSidebarBtn"),
+  closeSidebarBtn: document.querySelector("#closeSidebarBtn"),
+  sidebarBackdrop: document.querySelector("#sidebarBackdrop"),
+  sideDrawer: document.querySelector("#sideDrawer"),
+  sideNavButtons: document.querySelectorAll(".side-nav-button"),
   openFormBtn: document.querySelector("#openFormBtn"),
   emptyAddBtn: document.querySelector("#emptyAddBtn"),
   clearFiltersBtn: document.querySelector("#clearFiltersBtn"),
@@ -70,11 +75,8 @@ const dom = {
   codeCount: document.querySelector("#codeCount"),
   mediaCount: document.querySelector("#mediaCount"),
   dashboardGrid: document.querySelector("#dashboardGrid"),
-  statisticsGrid: document.querySelector("#statisticsGrid"),
-  statisticsLearning: document.querySelector("#statisticsLearning"),
-  statisticsJournal: document.querySelector("#statisticsJournal"),
-  statisticsPlan: document.querySelector("#statisticsPlan"),
   statusList: document.querySelector("#statusList"),
+  statisticsViewContent: document.querySelector("#statisticsViewContent"),
   installBtn: document.querySelector("#installBtn"),
   exportAllBtn: document.querySelector("#exportAllBtn"),
   importBackupInput: document.querySelector("#importBackupInput"),
@@ -116,7 +118,7 @@ const dom = {
   insightBox: document.querySelector("#insightBox"),
   fullscreenAnalyzeBtn: document.querySelector("#fullscreenAnalyzeBtn"),
   fullscreenAnalysis: document.querySelector("#fullscreenAnalysis"),
-  navButtons: document.querySelectorAll(".nav-button"),
+  navButtons: document.querySelectorAll(".bottom-nav .nav-button"),
   views: {
     library: document.querySelector("#libraryView"),
     code: document.querySelector("#codeView"),
@@ -231,6 +233,16 @@ function bindEvents() {
     dom.searchInput.focus();
   });
 
+  dom.openSidebarBtn?.addEventListener("click", openSidebar);
+  dom.closeSidebarBtn?.addEventListener("click", closeSidebar);
+  dom.sidebarBackdrop?.addEventListener("click", closeSidebar);
+  dom.sideNavButtons?.forEach((button) => {
+    button.addEventListener("click", () => {
+      setView(button.dataset.view);
+      closeSidebar();
+    });
+  });
+
   dom.openFormBtn.addEventListener("click", () => openForm());
   dom.emptyAddBtn.addEventListener("click", () => openForm());
 
@@ -339,6 +351,27 @@ function bindEvents() {
   });
 
   dom.installBtn.addEventListener("click", installApp);
+
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeSidebar();
+  });
+}
+
+
+function openSidebar() {
+  if (!dom.sideDrawer || !dom.sidebarBackdrop) return;
+  dom.sideDrawer.classList.add("is-open");
+  dom.sideDrawer.setAttribute("aria-hidden", "false");
+  dom.sidebarBackdrop.hidden = false;
+  document.body.classList.add("sidebar-open");
+}
+
+function closeSidebar() {
+  if (!dom.sideDrawer || !dom.sidebarBackdrop) return;
+  dom.sideDrawer.classList.remove("is-open");
+  dom.sideDrawer.setAttribute("aria-hidden", "true");
+  dom.sidebarBackdrop.hidden = true;
+  document.body.classList.remove("sidebar-open");
 }
 
 function loadItems() {
@@ -467,6 +500,9 @@ function setView(view, shouldRender = true) {
     section.classList.toggle("is-active", isActive);
   });
   dom.navButtons.forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.view === state.view);
+  });
+  dom.sideNavButtons?.forEach((button) => {
     button.classList.toggle("is-active", button.dataset.view === state.view);
   });
   saveSettings();
@@ -845,97 +881,6 @@ function renderDashboard(items) {
   });
 }
 
-
-function renderStatistics(items) {
-  if (!dom.statisticsGrid || !dom.statisticsLearning || !dom.statisticsJournal || !dom.statisticsPlan) return;
-
-  const totals = {
-    total: items.length,
-    video: items.filter((item) => getItemFileType(item) === "Video").length,
-    pdf: items.filter((item) => getItemFileType(item) === "PDF").length,
-    image: items.filter((item) => getItemFileType(item) === "Gambar").length,
-    word: items.filter((item) => getItemFileType(item) === "Word").length,
-    code: items.filter((item) => getItemFileType(item) === "Kode").length,
-    journal: state.journals.length
-  };
-
-  const learned = items.filter((item) => ["Dipelajari", "Dipakai", "Selesai"].includes(item.status)).length;
-  const unread = items.filter((item) => item.status === "Belum dibaca").length;
-  const progress = totals.total ? Math.round((learned / totals.total) * 100) : 0;
-  const wins = state.journals.filter((journal) => journal.result === "Win").length;
-  const losses = state.journals.filter((journal) => journal.result === "Loss").length;
-  const be = state.journals.filter((journal) => journal.result === "BE").length;
-  const completedTrades = wins + losses + be;
-  const winrate = completedTrades ? Math.round((wins / completedTrades) * 100) : 0;
-
-  dom.statisticsGrid.replaceChildren(
-    makeStatCard("Total Materi", totals.total),
-    makeStatCard("Video", totals.video),
-    makeStatCard("PDF", totals.pdf),
-    makeStatCard("Gambar", totals.image),
-    makeStatCard("Word", totals.word),
-    makeStatCard("Kode", totals.code),
-    makeStatCard("Jurnal", totals.journal),
-    makeStatCard("Win Rate", `${winrate}%`)
-  );
-
-  dom.statisticsLearning.replaceChildren(
-    makeProgressBlock("Progress Belajar", progress, `${learned} selesai / ${unread} belum dibaca`),
-    makeProgressBlock("Materi Dipakai", totals.total ? Math.round((items.filter((item) => item.status === "Dipakai").length / totals.total) * 100) : 0, `${items.filter((item) => item.status === "Dipakai").length} materi dipakai`)
-  );
-
-  dom.statisticsJournal.replaceChildren(
-    makeProgressBlock("Win", completedTrades ? Math.round((wins / completedTrades) * 100) : 0, `${wins} jurnal win`),
-    makeProgressBlock("Loss", completedTrades ? Math.round((losses / completedTrades) * 100) : 0, `${losses} jurnal loss`),
-    makeProgressBlock("BE", completedTrades ? Math.round((be / completedTrades) * 100) : 0, `${be} jurnal BE`)
-  );
-
-  const plan = document.createElement("ul");
-  plan.className = "feature-plan-list";
-  [
-    "Perbaikan PDF Viewer",
-    "Thumbnail Video",
-    "Thumbnail PDF / Dokumen",
-    "Navigasi Sidebar Kiri",
-    "Dashboard Statistik",
-    "Bulk Delete / Checklist"
-  ].forEach((text) => {
-    const item = document.createElement("li");
-    item.textContent = text;
-    plan.append(item);
-  });
-  dom.statisticsPlan.replaceChildren(plan);
-}
-
-function makeProgressBlock(label, percent, detail) {
-  const block = document.createElement("div");
-  block.className = "stat-progress-block";
-
-  const top = document.createElement("div");
-  top.className = "status-row-top";
-
-  const name = document.createElement("span");
-  name.textContent = label;
-
-  const amount = document.createElement("strong");
-  amount.textContent = `${percent}%`;
-
-  const track = document.createElement("div");
-  track.className = "progress-track";
-
-  const bar = document.createElement("div");
-  bar.className = "progress-bar";
-  bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
-
-  const meta = document.createElement("p");
-  meta.textContent = detail;
-
-  top.append(name, amount);
-  track.append(bar);
-  block.append(top, track, meta);
-  return block;
-}
-
 function makeStatCard(label, value) {
   const card = document.createElement("div");
   card.className = "stat-card";
@@ -948,6 +893,189 @@ function makeStatCard(label, value) {
 
   card.append(title, number);
   return card;
+}
+
+
+function renderStatistics(items) {
+  if (!dom.statisticsViewContent) return;
+  const total = items.length;
+  const totals = {
+    video: items.filter((item) => getItemFileType(item) === "Video").length,
+    pdf: items.filter((item) => getItemFileType(item) === "PDF").length,
+    image: items.filter((item) => getItemFileType(item) === "Gambar").length,
+    journal: state.journals.length
+  };
+  const unread = items.filter((item) => item.status === "Belum dibaca").length;
+  const learned = items.filter((item) => ["Dipelajari", "Dipakai", "Selesai"].includes(item.status)).length;
+  const used = items.filter((item) => item.status === "Dipakai").length;
+  const videoWatched = items.filter((item) => getItemFileType(item) === "Video" && item.status !== "Belum dibaca").length;
+  const pdfOpened = items.filter((item) => getItemFileType(item) === "PDF" && item.status !== "Belum dibaca").length;
+  const progressPercent = total ? Math.round((learned / total) * 100) : 0;
+  const videoPercent = totals.video ? Math.round((videoWatched / totals.video) * 100) : 0;
+  const pdfPercent = totals.pdf ? Math.round((pdfOpened / totals.pdf) * 100) : 0;
+
+  const journalStats = getJournalStatistics();
+  const monthInfo = getCurrentMonthInfo();
+  const calendarHtml = buildStatisticsCalendar(monthInfo.year, monthInfo.month);
+  const performanceRing = journalStats.entryCount ? Math.round((journalStats.win / journalStats.entryCount) * 100) : 0;
+
+  dom.statisticsViewContent.innerHTML = `
+    <div class="stats-period-control"><span>${monthInfo.label}</span></div>
+
+    <div class="stats-summary-grid">
+      ${makeStatisticsCard("Total Materi", total, "stack")}
+      ${makeStatisticsCard("Video", totals.video, "video")}
+      ${makeStatisticsCard("PDF", totals.pdf, "pdf")}
+      ${makeStatisticsCard("Gambar", totals.image, "image")}
+      ${makeStatisticsCard("Jurnal", totals.journal, "journal")}
+    </div>
+
+    <div class="stats-progress-grid">
+      ${makeProgressStat("Sudah dibaca", learned, progressPercent)}
+      ${makeProgressStat("Belum dibaca", unread, total ? Math.round((unread / total) * 100) : 0)}
+      ${makeProgressStat("Video ditonton", videoWatched, videoPercent)}
+      ${makeProgressStat("PDF terbuka", pdfOpened, pdfPercent)}
+    </div>
+
+    <section class="stats-panel">
+      <h3>Performa Jurnal Trading</h3>
+      <div class="journal-performance-grid">
+        ${makeJournalStat("Total Entry", journalStats.entryCount, "chart")}
+        ${makeJournalStat("Win Rate", `${journalStats.winRate}%`, "target")}
+        ${makeJournalStat("Win / Loss", `${journalStats.win} / ${journalStats.loss}`, "ratio")}
+        ${makeJournalStat("BE / No Entry", `${journalStats.be} / ${journalStats.noEntry}`, "money")}
+      </div>
+    </section>
+
+    <section class="stats-panel calendar-panel">
+      <div class="calendar-title">
+        <h3>${monthInfo.label}</h3>
+        <p>Monthly Journal • ${journalStats.monthJournalCount} jurnal</p>
+      </div>
+      ${calendarHtml}
+    </section>
+
+    <div class="stats-lower-grid">
+      <section class="stats-panel stat-donut-card">
+        <h3>Performa Bulanan</h3>
+        <div class="donut-wrap">
+          <div class="donut-ring" style="--value:${performanceRing}"><strong>${performanceRing}%</strong><span>Win Rate</span></div>
+          <div class="donut-legend">
+            <span><i class="legend-profit"></i>Win ${journalStats.win}</span>
+            <span><i class="legend-loss"></i>Loss ${journalStats.loss}</span>
+            <span><i class="legend-neutral"></i>BE ${journalStats.be}</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="stats-panel progress-learning-card">
+        <h3>Progress Belajar</h3>
+        <div class="learning-line"><span>Total Materi</span><strong>${total}</strong></div>
+        <div class="learning-progress"><i style="width:${progressPercent}%"></i></div>
+        <div class="learning-percent">${progressPercent}%</div>
+        <div class="learning-list">
+          <span>Sudah dibaca <strong>${learned}</strong></span>
+          <span>Belum dibaca <strong>${unread}</strong></span>
+          <span>Dipakai <strong>${used}</strong></span>
+        </div>
+      </section>
+
+      <section class="stats-panel feature-plan-card">
+        <h3>Rencana Fitur Berikutnya</h3>
+        <ul>
+          <li>Perbaikan PDF Viewer</li>
+          <li>Thumbnail Video</li>
+          <li>Thumbnail PDF/Dokumen</li>
+          <li>Quick Action di Header</li>
+          <li>Navigasi Sidebar</li>
+          <li>Bulk Delete / Checklist</li>
+        </ul>
+      </section>
+    </div>
+  `;
+}
+
+function makeStatisticsCard(label, value, type) {
+  return `<article class="stats-card"><span class="stats-icon stats-icon-${type}"></span><p>${label}</p><strong>${value}</strong></article>`;
+}
+
+function makeProgressStat(label, value, percent) {
+  const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
+  return `<article class="progress-stat"><div class="mini-ring" style="--value:${safePercent}"><span>${safePercent}%</span></div><div><p>${label}</p><strong>${value}</strong></div></article>`;
+}
+
+function makeJournalStat(label, value, type) {
+  return `<article class="journal-stat"><span class="journal-stat-icon journal-stat-${type}"></span><p>${label}</p><strong>${value}</strong></article>`;
+}
+
+function getJournalStatistics() {
+  const monthInfo = getCurrentMonthInfo();
+  const monthPrefix = `${monthInfo.year}-${String(monthInfo.month + 1).padStart(2, "0")}`;
+  const monthJournals = state.journals.filter((journal) => String(journal.date || "").startsWith(monthPrefix));
+  const source = monthJournals.length ? monthJournals : state.journals;
+  const win = source.filter((journal) => journal.result === "Win").length;
+  const loss = source.filter((journal) => journal.result === "Loss").length;
+  const be = source.filter((journal) => journal.result === "BE").length;
+  const noEntry = source.filter((journal) => journal.result === "Tidak entry").length;
+  const entryCount = source.filter((journal) => journal.result !== "Tidak entry").length;
+  const decided = win + loss;
+  return {
+    win,
+    loss,
+    be,
+    noEntry,
+    entryCount,
+    monthJournalCount: monthJournals.length,
+    winRate: decided ? Math.round((win / decided) * 100) : 0
+  };
+}
+
+function getCurrentMonthInfo() {
+  const now = new Date();
+  const monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+  return {
+    year: now.getFullYear(),
+    month: now.getMonth(),
+    label: `${monthNames[now.getMonth()]} ${now.getFullYear()}`
+  };
+}
+
+function buildStatisticsCalendar(year, month) {
+  const dayLabels = ["MIN", "SEN", "SEL", "RAB", "KAM", "JUM", "SAB", "MINGGUAN"];
+  const first = new Date(year, month, 1);
+  const last = new Date(year, month + 1, 0);
+  const startDay = first.getDay();
+  const totalDays = last.getDate();
+  const cells = [];
+  for (let i = 0; i < startDay; i += 1) cells.push({ empty: true });
+  for (let day = 1; day <= totalDays; day += 1) {
+    const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const journals = state.journals.filter((journal) => journal.date === date);
+    cells.push({ day, journals });
+  }
+  while (cells.length % 7 !== 0) cells.push({ empty: true });
+  const weeks = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  const header = dayLabels.map((label) => `<div class="cal-head">${label}</div>`).join("");
+  const rows = weeks.map((week) => {
+    const win = week.flatMap((cell) => cell.journals || []).filter((journal) => journal.result === "Win").length;
+    const loss = week.flatMap((cell) => cell.journals || []).filter((journal) => journal.result === "Loss").length;
+    const weekClass = win > loss ? "is-win" : loss > win ? "is-loss" : "";
+    const weekText = win || loss ? `${win}W / ${loss}L` : "No Trade";
+    return week.map((cell) => makeCalendarCell(cell)).join("") + `<div class="cal-cell cal-week ${weekClass}">${weekText}</div>`;
+  }).join("");
+  return `<div class="statistics-calendar">${header}${rows}</div>`;
+}
+
+function makeCalendarCell(cell) {
+  if (cell.empty) return `<div class="cal-cell is-empty"></div>`;
+  const journals = cell.journals || [];
+  const hasWin = journals.some((journal) => journal.result === "Win");
+  const hasLoss = journals.some((journal) => journal.result === "Loss");
+  const hasBe = journals.some((journal) => journal.result === "BE");
+  const cls = hasWin ? "is-win" : hasLoss ? "is-loss" : hasBe ? "is-be" : "";
+  const label = journals.length ? (journals.length > 1 ? `${journals.length} jurnal` : journals[0].result || "Jurnal") : "No Trade";
+  return `<div class="cal-cell ${cls}"><strong>${cell.day}</strong><span>${label}</span></div>`;
 }
 
 function openForm(id = null) {

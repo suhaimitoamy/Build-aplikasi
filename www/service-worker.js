@@ -1,4 +1,4 @@
-const CACHE_VERSION = "20260517multiprovider";
+const CACHE_VERSION = "20260517statssidebarfinal";
 const CACHE_NAME = `trading-library-manager-${CACHE_VERSION}`;
 
 const APP_SHELL = [
