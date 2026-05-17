@@ -6,18 +6,18 @@
     <meta name="theme-color" content="#050806">
     <meta name="description" content="Trading Library Manager untuk mengelola materi, indikator, gambar chart, video pembelajaran, dan dokumen trading.">
     <title>Trading Library Manager</title>
-    <link rel="manifest" href="./manifest.json?v=20260517multiprovider">
-    <link rel="stylesheet" href="./style.css?v=20260517multiprovider">
+    <link rel="manifest" href="./manifest.json?v=20260517drawerfix1">
+    <link rel="stylesheet" href="./style.css?v=20260517drawerfix1">
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'%3E%3Crect width='96' height='96' rx='24' fill='%23050806'/%3E%3Cpath d='M20 62h12V36H20v26Zm22 0h12V24H42v38Zm22 0h12V44H64v18Z' fill='%2339ff88'/%3E%3Cpath d='M18 72h60' stroke='%23f4fff7' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E">
   </head>
   <body>
     <div class="app-shell">
       <header class="app-header">
-        <details class="side-menu" id="sideMenu">
-          <summary class="icon-button side-menu-toggle" aria-label="Buka navigasi">
+        <div class="side-menu" id="sideMenu">
+          <button class="icon-button side-menu-toggle" type="button" aria-label="Buka navigasi" onclick="document.body.classList.add('drawer-open')">
             <span class="menu-icon" aria-hidden="true"></span>
-          </summary>
-          <button class="side-menu-backdrop" type="button" aria-label="Tutup navigasi" onclick="this.closest('details').removeAttribute('open')"></button>
+          </button>
+          <button class="side-menu-backdrop" type="button" aria-label="Tutup navigasi" onclick="document.body.classList.remove('drawer-open')"></button>
           <aside class="side-drawer" aria-label="Navigasi samping">
             <div class="side-drawer-head">
               <div class="brand-mark" aria-hidden="true">TL</div>
@@ -25,34 +25,35 @@
                 <span>Quick Menu</span>
                 <h2>Trading Library</h2>
               </div>
+              <button class="icon-button side-drawer-close" type="button" aria-label="Tutup navigasi" onclick="document.body.classList.remove('drawer-open')">×</button>
             </div>
 
             <nav class="side-drawer-menu" aria-label="Menu cepat">
-              <button class="nav-button side-nav-button" type="button" data-view="status" onclick="this.closest('details').removeAttribute('open')">
+              <button class="nav-button side-nav-button" type="button" data-view="status" onclick="document.body.classList.remove('drawer-open')">
                 <span class="nav-icon status-icon" aria-hidden="true"></span>
                 <span>Dashboard / Status</span>
               </button>
-              <button class="nav-button side-nav-button" type="button" data-view="statistics" onclick="this.closest('details').removeAttribute('open')">
+              <button class="nav-button side-nav-button" type="button" data-view="statistics" onclick="document.body.classList.remove('drawer-open')">
                 <span class="nav-icon statistics-icon" aria-hidden="true"></span>
                 <span>Statistik</span>
               </button>
-              <button class="nav-button side-nav-button is-active" type="button" data-view="library" onclick="this.closest('details').removeAttribute('open')">
+              <button class="nav-button side-nav-button is-active" type="button" data-view="library" onclick="document.body.classList.remove('drawer-open')">
                 <span class="nav-icon library-icon" aria-hidden="true"></span>
                 <span>Library</span>
               </button>
-              <button class="nav-button side-nav-button" type="button" data-view="code" onclick="this.closest('details').removeAttribute('open')">
+              <button class="nav-button side-nav-button" type="button" data-view="code" onclick="document.body.classList.remove('drawer-open')">
                 <span class="nav-icon code-icon" aria-hidden="true"></span>
                 <span>Kode Indikator</span>
               </button>
-              <button class="nav-button side-nav-button" type="button" data-view="media" onclick="this.closest('details').removeAttribute('open')">
+              <button class="nav-button side-nav-button" type="button" data-view="media" onclick="document.body.classList.remove('drawer-open')">
                 <span class="nav-icon media-icon" aria-hidden="true"></span>
                 <span>Media</span>
               </button>
-              <button class="nav-button side-nav-button" type="button" data-view="journal" onclick="this.closest('details').removeAttribute('open')">
+              <button class="nav-button side-nav-button" type="button" data-view="journal" onclick="document.body.classList.remove('drawer-open')">
                 <span class="nav-icon journal-icon" aria-hidden="true"></span>
                 <span>Jurnal Trading</span>
               </button>
-              <button class="nav-button side-nav-button" type="button" data-view="assistant" onclick="this.closest('details').removeAttribute('open')">
+              <button class="nav-button side-nav-button" type="button" data-view="assistant" onclick="document.body.classList.remove('drawer-open')">
                 <span class="nav-icon assistant-icon" aria-hidden="true"></span>
                 <span>Asisten AI</span>
               </button>
@@ -63,7 +64,7 @@
               <span>Status, statistik, kode indikator, backup, restore, PIN, dan menu tambahan berada di sidebar.</span>
             </div>
           </aside>
-        </details>
+        </div>
 
         <div class="brand">
           <div class="brand-mark" aria-hidden="true">TL</div>
@@ -563,7 +564,7 @@
       </div>
     </dialog>
 
-    <script src="./jszip.min.js?v=20260517multiprovider" defer></script>
-    <script src="./app.js?v=20260517multiprovider" defer></script>
+    <script src="./jszip.min.js?v=20260517drawerfix1" defer></script>
+    <script src="./app.js?v=20260517drawerfix1" defer></script>
   </body>
 </html>
