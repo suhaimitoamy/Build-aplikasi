@@ -2675,3 +2675,82 @@ body.sidebar-open {
     min-height: 440px;
   }
 }
+
+/* Final smooth/insight/calendar refinements */
+.stats-month-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  justify-self: end;
+  padding: 6px;
+}
+
+.stats-month-control button {
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(244, 255, 247, 0.06);
+  color: var(--text);
+  font-size: 1.25rem;
+  font-weight: 900;
+}
+
+.stats-month-control span {
+  min-width: 118px;
+  text-align: center;
+}
+
+.insight-box {
+  white-space: normal;
+}
+
+.insight-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.insight-mini-card {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(57, 255, 136, 0.16);
+  border-radius: 14px;
+  background: rgba(57, 255, 136, 0.06);
+  padding: 10px;
+}
+
+.insight-mini-card span {
+  color: var(--muted-strong);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.insight-mini-card strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.96rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.insight-text,
+.pdf-text-reader {
+  margin: 0;
+  color: #e8fff0;
+  font: inherit;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pdf-text-reader {
+  border: 1px solid rgba(57, 255, 136, 0.12);
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.18);
+  padding: 12px;
+}

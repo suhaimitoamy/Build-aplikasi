@@ -5,7 +5,7 @@ const SETTINGS_KEY = "tradingLibraryManager.settings.v1";
 const DB_NAME = "tradingLibraryManager.files";
 const DB_VERSION = 1;
 const FILE_STORE = "files";
-const APP_VERSION = "20260517fixpack1";
+const APP_VERSION = "20260517finalfix1";
 const JOURNAL_STORAGE_KEY = "tradingLibraryManager.journals.v1";
 const ASSISTANT_SETTINGS_KEY = "tradingLibraryManager.assistantSettings.v1";
 const INSIGHT_CACHE_KEY = "tradingLibraryManager.insightCache.v1";
@@ -208,6 +208,8 @@ const state = {
   viewerStatusChanged: false,
   journalOpenDate: "",
   journalOpenId: "",
+  statsCalendarYear: null,
+  statsCalendarMonth: null,
   lastBackAt: 0
 };
 
@@ -439,6 +441,7 @@ function loadItems() {
 
 function saveItems(items = state.items) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(items.map(cleanItemForStorage)));
+  refreshInsightCache();
 }
 
 function cleanItemForStorage(item) {
@@ -603,29 +606,56 @@ function setView(view, shouldRender = true) {
 
 function render() {
   revokeRenderedObjectUrls();
+  const data = getRenderData();
+  updateRenderCounters(data);
+  renderActiveView(data);
+  syncSelectControls();
+}
+
+function getRenderData() {
   const allMatches = getFilteredItems(state.items);
   const codeItems = allMatches.filter((item) => item.type === "Kode Indikator" || item.category === "Indikator");
   const mediaItems = allMatches
     .filter((item) => isMediaItem(item) || isDocumentItem(item))
     .filter((item) => state.mediaType === "Semua" || getItemFileType(item) === state.mediaType || (state.mediaType === "Dokumen" && isDocumentItem(item)));
+  return { allMatches, codeItems, mediaItems };
+}
 
-  renderGrid(dom.libraryGrid, allMatches);
-  renderGrid(dom.codeGrid, codeItems);
-  renderGrid(dom.mediaGrid, mediaItems);
-  renderDashboard(allMatches);
-  renderStatistics(allMatches);
-  renderJournals();
-  renderAssistantPanel();
-
-  dom.libraryCount.textContent = makeCount(allMatches.length);
-  dom.codeCount.textContent = makeCount(codeItems.length);
-  dom.mediaCount.textContent = makeCount(mediaItems.length);
-
-  dom.libraryEmpty.hidden = allMatches.length > 0;
-  dom.codeEmpty.hidden = codeItems.length > 0;
-  dom.mediaEmpty.hidden = mediaItems.length > 0;
+function updateRenderCounters({ allMatches, codeItems, mediaItems }) {
+  if (dom.libraryCount) dom.libraryCount.textContent = makeCount(allMatches.length);
+  if (dom.codeCount) dom.codeCount.textContent = makeCount(codeItems.length);
+  if (dom.mediaCount) dom.mediaCount.textContent = makeCount(mediaItems.length);
   if (dom.journalCount) dom.journalCount.textContent = `${state.journals.length} jurnal`;
-  syncSelectControls();
+}
+
+function renderActiveView({ allMatches, codeItems, mediaItems }) {
+  switch (state.view) {
+    case "code":
+      renderGrid(dom.codeGrid, codeItems);
+      if (dom.codeEmpty) dom.codeEmpty.hidden = codeItems.length > 0;
+      break;
+    case "media":
+      renderGrid(dom.mediaGrid, mediaItems);
+      if (dom.mediaEmpty) dom.mediaEmpty.hidden = mediaItems.length > 0;
+      break;
+    case "journal":
+      renderJournals();
+      break;
+    case "assistant":
+      renderAssistantPanel();
+      break;
+    case "statistics":
+      renderStatistics(allMatches);
+      break;
+    case "status":
+      renderDashboard(allMatches);
+      break;
+    case "library":
+    default:
+      renderGrid(dom.libraryGrid, allMatches);
+      if (dom.libraryEmpty) dom.libraryEmpty.hidden = allMatches.length > 0;
+      break;
+  }
 }
 
 function getFilteredItems(items) {
@@ -1013,7 +1043,11 @@ function renderStatistics(items) {
   const performanceRing = journalStats.entryCount ? Math.round((journalStats.win / journalStats.entryCount) * 100) : 0;
 
   dom.statisticsViewContent.innerHTML = `
-    <div class="stats-period-control"><span>${monthInfo.label}</span></div>
+    <div class="stats-period-control stats-month-control">
+      <button type="button" data-stats-month-nav="-1" aria-label="Bulan sebelumnya">‹</button>
+      <span>${monthInfo.label}</span>
+      <button type="button" data-stats-month-nav="1" aria-label="Bulan berikutnya">›</button>
+    </div>
 
     <div class="stats-summary-grid">
       ${makeStatisticsCard("Total Materi", total, "stack")}
@@ -1109,7 +1143,13 @@ function getJournalStatistics() {
   const monthInfo = getCurrentMonthInfo();
   const monthPrefix = `${monthInfo.year}-${String(monthInfo.month + 1).padStart(2, "0")}`;
   const monthJournals = state.journals.filter((journal) => String(journal.date || "").startsWith(monthPrefix));
-  const source = monthJournals.length ? monthJournals : state.journals;
+  return {
+    ...calculateJournalStats(monthJournals),
+    monthJournalCount: monthJournals.length
+  };
+}
+
+function calculateJournalStats(source = []) {
   const win = source.filter((journal) => journal.result === "Win").length;
   const loss = source.filter((journal) => journal.result === "Loss").length;
   const be = source.filter((journal) => journal.result === "BE").length;
@@ -1125,7 +1165,6 @@ function getJournalStatistics() {
     be,
     noEntry,
     entryCount,
-    monthJournalCount: monthJournals.length,
     winRate: decided ? Math.round((win / decided) * 100) : 0,
     totalProfit,
     totalLoss,
@@ -1137,12 +1176,22 @@ function getJournalStatistics() {
 
 function getCurrentMonthInfo() {
   const now = new Date();
+  if (!Number.isInteger(state.statsCalendarYear)) state.statsCalendarYear = now.getFullYear();
+  if (!Number.isInteger(state.statsCalendarMonth)) state.statsCalendarMonth = now.getMonth();
   const monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
   return {
-    year: now.getFullYear(),
-    month: now.getMonth(),
-    label: `${monthNames[now.getMonth()]} ${now.getFullYear()}`
+    year: state.statsCalendarYear,
+    month: state.statsCalendarMonth,
+    label: `${monthNames[state.statsCalendarMonth]} ${state.statsCalendarYear}`
   };
+}
+
+function shiftStatisticsMonth(offset) {
+  const current = getCurrentMonthInfo();
+  const next = new Date(current.year, current.month + offset, 1);
+  state.statsCalendarYear = next.getFullYear();
+  state.statsCalendarMonth = next.getMonth();
+  renderStatistics(getFilteredItems(state.items));
 }
 
 function buildStatisticsCalendar(year, month) {
@@ -1187,6 +1236,9 @@ function makeCalendarCell(cell) {
 function bindStatisticsCalendarEvents() {
   dom.statisticsViewContent?.querySelectorAll("[data-journal-date]").forEach((button) => {
     button.addEventListener("click", () => openJournalDate(button.dataset.journalDate));
+  });
+  dom.statisticsViewContent?.querySelectorAll("[data-stats-month-nav]").forEach((button) => {
+    button.addEventListener("click", () => shiftStatisticsMonth(Number(button.dataset.statsMonthNav) || 0));
   });
 }
 
@@ -2910,42 +2962,46 @@ async function renderPdfReader(item) {
   title.textContent = getDocumentName(item);
   shell.append(title);
 
+  const text = item.documentText || await (async () => {
+    const blob = await getFileBlob(item);
+    return blob ? extractPdfText(blob).catch(() => "") : "";
+  })();
+
+  if (text) {
+    const pre = document.createElement("pre");
+    pre.className = "pdf-text-reader";
+    pre.textContent = text;
+    shell.append(pre);
+  } else {
+    const note = document.createElement("p");
+    note.className = "reader-note";
+    note.textContent = "PDF belum bisa dirender penuh di WebView perangkat ini. File tetap tersimpan; gunakan tombol Buka / Download dari kartu jika halaman PDF kosong.";
+    shell.append(note);
+  }
+
   const source = await getFullscreenSource(item);
-  if (source) {
+  if (source && !isAndroidWebView()) {
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = "Viewer PDF asli";
     const frameWrap = document.createElement("div");
     frameWrap.className = "pdf-frame-shell";
-
     const frame = document.createElement("iframe");
     frame.className = "fullscreen-pdf";
     frame.title = item.title || getDocumentName(item);
     frame.src = `${source}#toolbar=1&navpanes=0&scrollbar=1`;
     frameWrap.append(frame);
-    shell.append(frameWrap);
-  }
-
-  const text = item.documentText || await (async () => {
-    const blob = await getFileBlob(item);
-    return blob ? extractPdfText(blob).catch(() => "") : "";
-  })();
-  if (text) {
-    const details = document.createElement("details");
-    details.open = true;
-    const summary = document.createElement("summary");
-    summary.textContent = "Teks PDF offline";
-    const pre = document.createElement("pre");
-    pre.textContent = text;
-    details.append(summary, pre);
+    details.append(summary, frameWrap);
     shell.append(details);
-  } else {
-    const note = document.createElement("p");
-    note.className = "reader-note";
-    note.textContent = "PDF ditampilkan di viewer internal. Gunakan scroll pada area dokumen. Jika PDF kosong di WebView, tombol Keluar lalu buka ulang file.";
-    shell.append(note);
   }
 
   dom.fullscreenStage.classList.add("is-reader-stage");
   dom.fullscreenStage.replaceChildren(shell);
   setupReadableCompletionTracking(shell, item);
+}
+
+function isAndroidWebView() {
+  return /Android/i.test(navigator.userAgent || "") && (/wv/i.test(navigator.userAgent || "") || /Capacitor/i.test(navigator.userAgent || ""));
 }
 
 async function renderDocxReader(item) {
@@ -3204,6 +3260,7 @@ function loadJournals() {
 
 function saveJournals(journals = state.journals) {
   localStorage.setItem(JOURNAL_STORAGE_KEY, JSON.stringify(journals));
+  refreshInsightCache();
 }
 
 function normalizeJournals(journals) {
@@ -3653,7 +3710,7 @@ function renderAssistantPanel() {
   if (document.activeElement !== dom.geminiModelInput) dom.geminiModelInput.value = state.geminiModel || getDefaultModelForProvider(state.aiProvider);
   if (dom.aiBaseUrlInput && document.activeElement !== dom.aiBaseUrlInput) dom.aiBaseUrlInput.value = state.aiBaseUrl || "";
   syncProviderFields();
-  dom.insightBox.textContent = state.insightCache?.text || "Belum ada insight. Tekan Update Insight.";
+  renderInsightBox();
 }
 
 function syncProviderFields() {
@@ -3723,14 +3780,54 @@ function clearInsightCache() {
 }
 
 function updateInsightCache() {
-  const text = buildLocalInsightText();
-  state.insightCache = { updatedAt: new Date().toISOString(), text };
-  saveInsightCache();
-  renderAssistantPanel();
-  if (dom.assistantMessage) dom.assistantMessage.textContent = "Insight lokal diperbarui tanpa memakai API.";
+  refreshInsightCache({ renderPanel: true, showMessage: true });
+}
+
+function refreshInsightCache(options = {}) {
+  const { renderPanel = state.view === "assistant", showMessage = false } = options;
+  try {
+    const text = buildLocalInsightText();
+    state.insightCache = {
+      updatedAt: new Date().toISOString(),
+      text,
+      cards: buildInsightCards()
+    };
+    saveInsightCache();
+    if (renderPanel) renderInsightBox();
+    if (showMessage && dom.assistantMessage) dom.assistantMessage.textContent = "Insight lokal diperbarui otomatis tanpa memakai API.";
+  } catch {}
 }
 
 function buildLocalInsightText() {
+  const keywordRows = getKeywordRows();
+  const journalResults = countBy(state.journals, (journal) => journal.result || "Belum selesai");
+  const setups = countBy(state.journals, (journal) => journal.setup || "Tanpa setup");
+  const categories = countBy(state.items, (item) => item.category || "Tanpa kategori");
+  const stats = calculateJournalStats(state.journals);
+  const profitSetups = rankSetupsByAmount("profit");
+  const lossSetups = rankSetupsByAmount("loss");
+  const recentJournals = state.journals.slice(0, 5).map((journal) => `- ${formatDate(journal.date)} ${journal.market || ""} ${journal.result || ""} ${getJournalProfitLossText(journal)}: ${journal.mistakes || journal.lessons || journal.plan || "tanpa catatan"}`.trim()).join("\n");
+  return [
+    `Update: ${new Date().toLocaleString("id-ID")}`,
+    `Total file/materi: ${state.items.length}`,
+    `Total jurnal: ${state.journals.length}`,
+    `Win rate: ${stats.winRate}%`,
+    `Total profit: ${formatTradeAmount(stats.totalProfit)}`,
+    `Total loss: ${formatTradeAmount(stats.totalLoss)}`,
+    `Net P/L: ${formatTradeAmount(stats.netProfit)}`,
+    `Rata-rata profit: ${formatTradeAmount(stats.averageProfit)}`,
+    `Rata-rata loss: ${formatTradeAmount(stats.averageLoss)}`,
+    `Setup paling profit: ${profitSetups || "belum ada"}`,
+    `Setup paling merugikan: ${lossSetups || "belum ada"}`,
+    `Pola kata kunci dominan: ${keywordRows.length ? keywordRows.map((row) => `${row.label} (${row.count})`).join(", ") : "belum cukup data"}`,
+    `Hasil jurnal: ${formatCountMap(journalResults)}`,
+    `Setup jurnal: ${formatCountMap(setups)}`,
+    `Kategori file dominan: ${formatCountMap(categories)}`,
+    `Jurnal terbaru:\n${recentJournals || "Belum ada jurnal."}`
+  ].join("\n");
+}
+
+function getKeywordRows() {
   const allTexts = [
     ...state.items.map((item) => [item.title, item.category, item.status, item.collection, item.notes, item.documentText, ...(item.tags || [])].join(" ")),
     ...state.journals.map((journal) => [journal.title, journal.market, journal.setup, journal.result, journal.plan, journal.evaluation, journal.mistakes, journal.lessons, journal.emotion].join(" "))
@@ -3745,26 +3842,50 @@ function buildLocalInsightText() {
     "Liquidity / sweep": ["liquidity", "sweep", "liquid", "fakeout"],
     "Order Block / FVG": ["order block", "ob", "fvg", "fair value gap"]
   };
-  const rows = [];
-  Object.entries(keywordMap).forEach(([label, words]) => {
-    const count = words.reduce((sum, word) => sum + countOccurrences(allTexts, word), 0);
-    if (count) rows.push({ label, count });
-  });
-  rows.sort((a, b) => b.count - a.count);
-  const journalResults = countBy(state.journals, (journal) => journal.result || "Belum selesai");
-  const setups = countBy(state.journals, (journal) => journal.setup || "Tanpa setup");
-  const categories = countBy(state.items, (item) => item.category || "Tanpa kategori");
-  const recentJournals = state.journals.slice(0, 5).map((journal) => `- ${formatDate(journal.date)} ${journal.market || ""} ${journal.result || ""}: ${journal.mistakes || journal.lessons || journal.plan || "tanpa catatan"}`.trim()).join("\n");
+  return Object.entries(keywordMap).map(([label, words]) => ({
+    label,
+    count: words.reduce((sum, word) => sum + countOccurrences(allTexts, word), 0)
+  })).filter((row) => row.count).sort((a, b) => b.count - a.count);
+}
+
+function buildInsightCards() {
+  const stats = calculateJournalStats(state.journals);
+  const keywordRows = getKeywordRows();
+  const topKeyword = keywordRows[0]?.label || "Belum cukup data";
+  const topSetup = countBy(state.journals, (journal) => journal.setup || "Tanpa setup")[0]?.[0] || "Belum ada";
   return [
-    `Update: ${new Date().toLocaleString("id-ID")}`,
-    `Total file/materi: ${state.items.length}`,
-    `Total jurnal: ${state.journals.length}`,
-    `Pola kata kunci dominan: ${rows.length ? rows.map((row) => `${row.label} (${row.count})`).join(", ") : "belum cukup data"}`,
-    `Hasil jurnal: ${formatCountMap(journalResults)}`,
-    `Setup jurnal: ${formatCountMap(setups)}`,
-    `Kategori file dominan: ${formatCountMap(categories)}`,
-    `Jurnal terbaru:\n${recentJournals || "Belum ada jurnal."}`
-  ].join("\n");
+    { label: "Jurnal", value: state.journals.length },
+    { label: "Win Rate", value: `${stats.winRate}%` },
+    { label: "Net P/L", value: formatTradeAmount(stats.netProfit) },
+    { label: "Kesalahan", value: topKeyword },
+    { label: "Setup", value: topSetup }
+  ];
+}
+
+function renderInsightBox() {
+  if (!dom.insightBox) return;
+  if (!state.insightCache) {
+    dom.insightBox.textContent = "Belum ada insight. Tekan Update Insight.";
+    return;
+  }
+  const cards = state.insightCache.cards || buildInsightCards();
+  dom.insightBox.innerHTML = `
+    <div class="insight-cards">
+      ${cards.map((card) => `<article class="insight-mini-card"><span>${escapeHtml(card.label)}</span><strong>${escapeHtml(card.value)}</strong></article>`).join("")}
+    </div>
+    <pre class="insight-text">${escapeHtml(state.insightCache.text || "")}</pre>
+  `;
+}
+
+function rankSetupsByAmount(key) {
+  const map = new Map();
+  state.journals.forEach((journal) => {
+    const setup = journal.setup || "Tanpa setup";
+    const amount = parseTradeAmount(journal[key]);
+    if (!amount) return;
+    map.set(setup, (map.get(setup) || 0) + amount);
+  });
+  return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([setup, amount]) => `${setup} (${formatTradeAmount(amount)})`).join(", ");
 }
 
 function countOccurrences(text, word) {
@@ -3812,7 +3933,7 @@ async function askAssistant() {
     dom.assistantAnswer.textContent = "Isi API key dulu di Pengaturan API.";
     return;
   }
-  if (!state.insightCache) updateInsightCache();
+  refreshInsightCache({ renderPanel: state.view === "assistant" });
   dom.assistantAnswer.textContent = "Menganalisis berdasarkan insight lokal...";
   const relevant = getRelevantLocalContext(question);
   const prompt = `Kamu adalah asisten jurnal trading pribadi. Jawab dalam bahasa Indonesia, ringkas, praktis, dan berdasarkan data pengguna. Jangan memberi sinyal pasti buy/sell.\n\nInsight kebiasaan lokal:\n${state.insightCache?.text || "Belum ada insight."}\n\nKonteks relevan dari file/jurnal:\n${relevant}\n\nPertanyaan pengguna:\n${question}`;
@@ -3835,7 +3956,7 @@ function getRelevantLocalContext(query) {
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, 8)
-    .map(({ journal }) => `Jurnal: ${journal.date} ${journal.market} ${journal.result} | ${journal.plan} | Evaluasi: ${journal.evaluation} | Kesalahan: ${journal.mistakes} | Pelajaran: ${journal.lessons}`);
+    .map(({ journal }) => `Jurnal: ${journal.date} ${journal.market} ${journal.setup} ${journal.result} ${getJournalProfitLossText(journal)} | Catatan: ${journal.plan} | Evaluasi: ${journal.evaluation} | Kesalahan: ${journal.mistakes} | Pelajaran: ${journal.lessons} | Emosi: ${journal.emotion}`);
   return [...scoredJournals, ...scoredItems].join("\n") || "Tidak ada konteks yang sangat relevan. Gunakan insight umum lokal.";
 }
 
@@ -3848,8 +3969,28 @@ async function askFromJournal(id) {
   const journal = state.journals.find((entry) => entry.id === id);
   if (!journal) return;
   setView("assistant");
-  dom.assistantQuestionInput.value = `Analisis jurnal ini berdasarkan kebiasaan trading saya: ${journal.title} ${journal.market} ${journal.result}. Kesalahan: ${journal.mistakes}. Pelajaran: ${journal.lessons}. Evaluasi: ${journal.evaluation}.`;
+  dom.assistantQuestionInput.value = `Analisis jurnal ini berdasarkan kebiasaan trading saya. Data jurnal lengkap:
+${formatJournalForAI(journal)}`;
   await askAssistant();
+}
+
+function formatJournalForAI(journal) {
+  return [
+    `Tanggal: ${formatDate(journal.date)}`,
+    `Market: ${journal.market || "-"}`,
+    `Judul: ${journal.title || "-"}`,
+    `Setup: ${journal.setup || "-"}`,
+    `Hasil: ${journal.result || "-"}`,
+    `Profit: ${formatTradeAmount(parseTradeAmount(journal.profit))}`,
+    `Loss: ${formatTradeAmount(parseTradeAmount(journal.loss))}`,
+    `Net P/L: ${formatTradeAmount(parseTradeAmount(journal.profit) - parseTradeAmount(journal.loss))}`,
+    `Catatan awal: ${journal.plan || "-"}`,
+    `Evaluasi: ${journal.evaluation || "-"}`,
+    `Kesalahan: ${journal.mistakes || "-"}`,
+    `Pelajaran: ${journal.lessons || "-"}`,
+    `Emosi: ${journal.emotion || "-"}`,
+    `Lampiran: ${(journal.attachments || []).length}`
+  ].join("\n");
 }
 
 async function callAI(parts) {
@@ -3970,7 +4111,7 @@ async function analyzeActiveChart() {
     showFullscreenAnalysis("Isi API key dulu di tab Asisten.");
     return;
   }
-  if (!state.insightCache) updateInsightCache();
+  refreshInsightCache();
   showFullscreenAnalysis("Mengompres gambar dan menganalisis chart...");
   try {
     const inline = await makeGeminiImagePart(item);
