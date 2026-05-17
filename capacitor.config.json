@@ -1,0 +1,8 @@
+{
+  "appId": "com.trading.library.manager",
+  "appName": "Trading Library Manager",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}
