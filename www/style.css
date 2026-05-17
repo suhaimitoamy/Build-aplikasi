@@ -2452,3 +2452,226 @@ body.sidebar-open {
   .icon-button,
   .add-button { width: 40px; min-height: 40px; }
 }
+
+/* Fix pack: compact filters, readers, video thumbnails, journal storage */
+.pill-row.filter-dropdown-row {
+  position: relative;
+  display: block;
+  margin: 0;
+  overflow: visible;
+  padding: 0;
+}
+
+.filter-dropdown {
+  position: relative;
+  width: 100%;
+}
+
+.filter-toggle-button {
+  display: inline-flex;
+  min-height: 38px;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.86rem;
+  font-weight: 900;
+  padding: 0 14px;
+}
+
+.filter-toggle-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-toggle-button i {
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+}
+
+.filter-toggle-button[aria-expanded="true"] i {
+  transform: translateY(2px) rotate(225deg);
+}
+
+.filter-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 24;
+  display: flex;
+  width: min(92vw, 720px);
+  max-height: 42vh;
+  flex-wrap: wrap;
+  gap: 8px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: rgba(5, 8, 6, 0.98);
+  padding: 12px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.filter-menu[hidden] {
+  display: none;
+}
+
+.fullscreen-stage.is-reader-stage {
+  display: block;
+  overflow: hidden;
+  place-items: initial;
+}
+
+.offline-reader,
+.fullscreen-markdown {
+  width: min(100%, 900px);
+  height: 100%;
+  margin: 0 auto;
+  overflow: auto;
+  border: 1px solid rgba(244, 255, 247, 0.1);
+  border-radius: var(--radius-lg);
+  background: rgba(7, 12, 9, 0.88);
+  padding: 14px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.offline-reader h3 {
+  margin: 0 0 12px;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.pdf-frame-shell {
+  width: 100%;
+  height: min(76vh, 760px);
+  min-height: 520px;
+  overflow: auto;
+  border: 1px solid rgba(244, 255, 247, 0.1);
+  border-radius: var(--radius-md);
+  background: #000;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pdf-reader .fullscreen-pdf {
+  width: 100%;
+  height: 100%;
+  min-height: 520px;
+  border: 0;
+  border-radius: 0;
+}
+
+.media-slot video {
+  background: #000;
+  object-fit: cover;
+}
+
+.statistics-calendar button.cal-cell {
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.cal-cell.is-clickable {
+  box-shadow: inset 0 0 0 1px rgba(57, 255, 136, 0.14);
+}
+
+.journal-date-group {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: rgba(16, 23, 18, 0.72);
+  padding: 10px;
+}
+
+.journal-date-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.journal-date-head span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.journal-date-head strong {
+  overflow: hidden;
+  font-size: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.journal-date-head small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.journal-date-head em {
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.journal-date-head i {
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid var(--muted-strong);
+  border-bottom: 2px solid var(--muted-strong);
+  transform: rotate(45deg);
+}
+
+.journal-date-group.is-open .journal-date-head i {
+  transform: rotate(225deg);
+}
+
+.journal-date-body {
+  display: grid;
+  gap: 10px;
+}
+
+.journal-date-body .journal-card {
+  box-shadow: none;
+}
+
+.journal-card:not(.is-expanded) {
+  padding-bottom: 12px;
+}
+
+.journal-card:not(.is-expanded) .journal-card-head {
+  cursor: pointer;
+}
+
+.journal-card:not(.is-expanded) .journal-card-head h3 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  .filter-menu {
+    width: calc(100vw - 24px);
+  }
+
+  .pdf-frame-shell,
+  .pdf-reader .fullscreen-pdf {
+    min-height: 440px;
+  }
+}

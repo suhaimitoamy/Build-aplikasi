@@ -5,7 +5,7 @@ const SETTINGS_KEY = "tradingLibraryManager.settings.v1";
 const DB_NAME = "tradingLibraryManager.files";
 const DB_VERSION = 1;
 const FILE_STORE = "files";
-const APP_VERSION = "20260517statssidebarfinal";
+const APP_VERSION = "20260517fixpack1";
 const JOURNAL_STORAGE_KEY = "tradingLibraryManager.journals.v1";
 const ASSISTANT_SETTINGS_KEY = "tradingLibraryManager.assistantSettings.v1";
 const INSIGHT_CACHE_KEY = "tradingLibraryManager.insightCache.v1";
@@ -91,6 +91,8 @@ const dom = {
   journalTitleInput: document.querySelector("#journalTitleInput"),
   journalSetupInput: document.querySelector("#journalSetupInput"),
   journalResultInput: document.querySelector("#journalResultInput"),
+  journalProfitInput: document.querySelector("#journalProfitInput"),
+  journalLossInput: document.querySelector("#journalLossInput"),
   journalPlanInput: document.querySelector("#journalPlanInput"),
   journalEvaluationInput: document.querySelector("#journalEvaluationInput"),
   journalMistakesInput: document.querySelector("#journalMistakesInput"),
@@ -202,7 +204,11 @@ const state = {
   selectedIds: new Set(),
   touchStartX: 0,
   dbPromise: null,
-  deferredInstallPrompt: null
+  deferredInstallPrompt: null,
+  viewerStatusChanged: false,
+  journalOpenDate: "",
+  journalOpenId: "",
+  lastBackAt: 0
 };
 
 async function boot() {
@@ -218,6 +224,7 @@ async function boot() {
   bindEvents();
   if (dom.journalDateInput && !dom.journalDateInput.value) dom.journalDateInput.value = new Date().toISOString().slice(0, 10);
   render();
+  initBackGuard();
   await migrateLegacyFiles();
   registerServiceWorker();
 }
@@ -300,6 +307,7 @@ function bindEvents() {
   dom.askAssistantBtn?.addEventListener("click", askAssistant);
   dom.fullscreenAnalyzeBtn?.addEventListener("click", analyzeActiveChart);
   document.addEventListener("click", closeOpenCardMenus);
+  document.addEventListener("click", () => closeOpenFilterMenus());
   dom.selectModeBtn.addEventListener("click", enterSelectMode);
   dom.cancelSelectBtn.addEventListener("click", exitSelectMode);
   dom.bulkDeleteBtn.addEventListener("click", deleteSelectedItems);
@@ -353,7 +361,10 @@ function bindEvents() {
   dom.installBtn.addEventListener("click", installApp);
 
   window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeSidebar();
+    if (event.key === "Escape") {
+      closeOpenFilterMenus();
+      closeSidebar();
+    }
   });
 }
 
@@ -372,6 +383,49 @@ function closeSidebar() {
   dom.sideDrawer.setAttribute("aria-hidden", "true");
   dom.sidebarBackdrop.hidden = true;
   document.body.classList.remove("sidebar-open");
+}
+
+function initBackGuard() {
+  try {
+    if (!history.state?.tlm) history.replaceState({ tlm: true, view: state.view }, "", location.href);
+    history.pushState({ tlm: true, guard: true, view: state.view }, "", location.href);
+    window.addEventListener("popstate", handleAppBack);
+  } catch {}
+}
+
+function handleAppBack() {
+  if (closeTopLayerForBack()) {
+    pushBackGuard();
+    return;
+  }
+  if (state.view !== "library") {
+    setView("library");
+    pushBackGuard();
+    return;
+  }
+  const now = Date.now();
+  if (now - state.lastBackAt < 1600) {
+    history.back();
+    return;
+  }
+  state.lastBackAt = now;
+  pushBackGuard();
+}
+
+function pushBackGuard() {
+  try {
+    history.pushState({ tlm: true, guard: true, view: state.view }, "", location.href);
+  } catch {}
+}
+
+function closeTopLayerForBack() {
+  if (dom.sideDrawer?.classList.contains("is-open")) { closeSidebar(); return true; }
+  if (dom.fullscreenDialog?.open) { closeFullscreenViewer(); return true; }
+  if (dom.dialog?.open) { closeForm(); return true; }
+  if (dom.documentDialog?.open) { closeDocumentDialog(); return true; }
+  if (document.querySelector(".filter-menu:not([hidden])")) { closeOpenFilterMenus(); return true; }
+  if (document.querySelector(".card-menu:not([hidden])")) { closeOpenCardMenus(); return true; }
+  return false;
 }
 
 function loadItems() {
@@ -480,6 +534,21 @@ function renderPills() {
 function renderPillSet(container, values, activeValue, onPick) {
   if (!container) return;
   container.replaceChildren();
+  container.classList.add("filter-dropdown-row");
+
+  const wrap = document.createElement("div");
+  wrap.className = "filter-dropdown";
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "filter-toggle-button";
+  toggle.setAttribute("aria-expanded", "false");
+  toggle.innerHTML = `<span>${escapeHtml(activeValue || "Semua")}</span><i aria-hidden="true"></i>`;
+
+  const menu = document.createElement("div");
+  menu.className = "filter-menu";
+  menu.hidden = true;
+
   values.forEach((value) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -487,8 +556,31 @@ function renderPillSet(container, values, activeValue, onPick) {
     button.textContent = value;
     button.setAttribute("role", "option");
     button.setAttribute("aria-selected", String(value === activeValue));
-    button.addEventListener("click", () => onPick(value));
-    container.append(button);
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      onPick(value);
+      closeOpenFilterMenus();
+    });
+    menu.append(button);
+  });
+
+  toggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const willOpen = menu.hidden;
+    closeOpenFilterMenus(menu);
+    menu.hidden = !willOpen;
+    toggle.setAttribute("aria-expanded", String(willOpen));
+  });
+
+  wrap.append(toggle, menu);
+  container.append(wrap);
+}
+
+function closeOpenFilterMenus(except = null) {
+  document.querySelectorAll(".filter-menu:not([hidden])").forEach((menu) => {
+    if (menu === except) return;
+    menu.hidden = true;
+    menu.parentElement?.querySelector(".filter-toggle-button")?.setAttribute("aria-expanded", "false");
   });
 }
 
@@ -784,6 +876,7 @@ function renderVideoSlot(slot, item, source) {
   video.preload = "metadata";
   video.playsInline = true;
   video.src = source;
+  applyVideoThumbnail(video, source);
   video.addEventListener("click", () => showFullscreenViewer(item));
   slot.append(video, makeMediaLabel("Video"));
 }
@@ -944,6 +1037,9 @@ function renderStatistics(items) {
         ${makeJournalStat("Win Rate", `${journalStats.winRate}%`, "target")}
         ${makeJournalStat("Win / Loss", `${journalStats.win} / ${journalStats.loss}`, "ratio")}
         ${makeJournalStat("BE / No Entry", `${journalStats.be} / ${journalStats.noEntry}`, "money")}
+        ${makeJournalStat("Total Profit", formatTradeAmount(journalStats.totalProfit), "money")}
+        ${makeJournalStat("Total Loss", formatTradeAmount(journalStats.totalLoss), "money")}
+        ${makeJournalStat("Net P/L", formatTradeAmount(journalStats.netProfit), "target")}
       </div>
     </section>
 
@@ -993,6 +1089,7 @@ function renderStatistics(items) {
       </section>
     </div>
   `;
+  bindStatisticsCalendarEvents();
 }
 
 function makeStatisticsCard(label, value, type) {
@@ -1019,6 +1116,9 @@ function getJournalStatistics() {
   const noEntry = source.filter((journal) => journal.result === "Tidak entry").length;
   const entryCount = source.filter((journal) => journal.result !== "Tidak entry").length;
   const decided = win + loss;
+  const totalProfit = source.reduce((sum, journal) => sum + parseTradeAmount(journal.profit), 0);
+  const totalLoss = source.reduce((sum, journal) => sum + parseTradeAmount(journal.loss), 0);
+  const netProfit = totalProfit - totalLoss;
   return {
     win,
     loss,
@@ -1026,7 +1126,12 @@ function getJournalStatistics() {
     noEntry,
     entryCount,
     monthJournalCount: monthJournals.length,
-    winRate: decided ? Math.round((win / decided) * 100) : 0
+    winRate: decided ? Math.round((win / decided) * 100) : 0,
+    totalProfit,
+    totalLoss,
+    netProfit,
+    averageProfit: win ? totalProfit / win : 0,
+    averageLoss: loss ? totalLoss / loss : 0
   };
 }
 
@@ -1051,7 +1156,7 @@ function buildStatisticsCalendar(year, month) {
   for (let day = 1; day <= totalDays; day += 1) {
     const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     const journals = state.journals.filter((journal) => journal.date === date);
-    cells.push({ day, journals });
+    cells.push({ day, date, journals });
   }
   while (cells.length % 7 !== 0) cells.push({ empty: true });
   const weeks = [];
@@ -1075,7 +1180,26 @@ function makeCalendarCell(cell) {
   const hasBe = journals.some((journal) => journal.result === "BE");
   const cls = hasWin ? "is-win" : hasLoss ? "is-loss" : hasBe ? "is-be" : "";
   const label = journals.length ? (journals.length > 1 ? `${journals.length} jurnal` : journals[0].result || "Jurnal") : "No Trade";
-  return `<div class="cal-cell ${cls}"><strong>${cell.day}</strong><span>${label}</span></div>`;
+  if (!journals.length) return `<div class="cal-cell ${cls}"><strong>${cell.day}</strong><span>${label}</span></div>`;
+  return `<button type="button" class="cal-cell ${cls} is-clickable" data-journal-date="${cell.date}"><strong>${cell.day}</strong><span>${label}</span></button>`;
+}
+
+function bindStatisticsCalendarEvents() {
+  dom.statisticsViewContent?.querySelectorAll("[data-journal-date]").forEach((button) => {
+    button.addEventListener("click", () => openJournalDate(button.dataset.journalDate));
+  });
+}
+
+function openJournalDate(date) {
+  const journals = state.journals.filter((journal) => journal.date === date);
+  if (!journals.length) return;
+  state.journalOpenDate = date;
+  state.journalOpenId = journals.length === 1 ? journals[0].id : "";
+  setView("journal");
+  render();
+  requestAnimationFrame(() => {
+    document.querySelector(`[data-journal-date-group="${CSS.escape(date)}"]`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+  });
 }
 
 function openForm(id = null) {
@@ -1570,6 +1694,8 @@ async function showFullscreenViewer(item) {
   if (!canOpenFullscreen(item)) return;
 
   state.activeFullscreenItem = item;
+  state.viewerStatusChanged = false;
+  dom.fullscreenStage.classList.remove("is-reader-stage");
   dom.fullscreenTitle.textContent = item.title || getDocumentName(item) || "Preview";
   dom.fullscreenMeta.textContent = getFullscreenMeta(item);
   dom.fullscreenStage.replaceChildren(makeFullscreenLoading());
@@ -1589,6 +1715,7 @@ function closeFullscreenViewer() {
   const media = dom.fullscreenStage.querySelector("video, audio");
   if (media) media.pause();
   dom.fullscreenStage.replaceChildren();
+  dom.fullscreenStage.classList.remove("is-reader-stage");
   if (dom.fullscreenAnalysis) { dom.fullscreenAnalysis.hidden = true; dom.fullscreenAnalysis.textContent = ""; }
   state.activeFullscreenItem = null;
   state.touchStartX = 0;
@@ -1599,6 +1726,10 @@ function closeFullscreenViewer() {
     dom.fullscreenDialog.close();
   } else {
     dom.fullscreenDialog.removeAttribute("open");
+  }
+  if (state.viewerStatusChanged) {
+    state.viewerStatusChanged = false;
+    render();
   }
 }
 
@@ -1615,6 +1746,7 @@ async function renderFullscreenContent(item) {
     image.alt = item.title || "Preview gambar";
     image.src = source;
     dom.fullscreenStage.replaceChildren(image);
+    setupImageCompletionTracking(item);
     return;
   }
 
@@ -1635,7 +1767,9 @@ async function renderFullscreenContent(item) {
     }
 
     article.append(pre);
+    dom.fullscreenStage.classList.add("is-reader-stage");
     dom.fullscreenStage.replaceChildren(article);
+    setupReadableCompletionTracking(article, item);
     return;
   }
 
@@ -1652,6 +1786,76 @@ async function renderFullscreenContent(item) {
   renderFullscreenDocumentSummary(item);
 }
 
+
+
+function markItemCompleted(item) {
+  if (!item?.id || String(item.id).includes(":")) return;
+  const index = state.items.findIndex((entry) => entry.id === item.id);
+  if (index < 0 || state.items[index].status === "Selesai") return;
+  state.items[index] = { ...state.items[index], status: "Selesai", updatedAt: new Date().toISOString() };
+  if (state.activeFullscreenItem?.id === item.id) state.activeFullscreenItem = state.items[index];
+  state.viewerStatusChanged = true;
+  saveItems();
+}
+
+function setupVideoCompletionTracking(video, item) {
+  const complete = () => markItemCompleted(item);
+  video.addEventListener("ended", complete);
+  video.addEventListener("timeupdate", () => {
+    if (video.duration && Number.isFinite(video.duration) && video.currentTime / video.duration >= 0.98) complete();
+  });
+}
+
+function setupImageCompletionTracking(item) {
+  const itemId = item?.id;
+  window.setTimeout(() => {
+    if (state.activeFullscreenItem?.id === itemId) markItemCompleted(item);
+  }, 3500);
+}
+
+function setupReadableCompletionTracking(element, item) {
+  if (!element) return;
+  const completeIfRead = () => {
+    if (element.scrollTop + element.clientHeight >= element.scrollHeight - 32) markItemCompleted(item);
+  };
+  element.addEventListener("scroll", completeIfRead, { passive: true });
+  window.setTimeout(() => {
+    if (element.scrollHeight <= element.clientHeight + 32) markItemCompleted(item);
+  }, 3500);
+  window.setTimeout(completeIfRead, 600);
+}
+
+function applyVideoThumbnail(video, source) {
+  if (!video || !source) return;
+  video.muted = true;
+  video.preload = "metadata";
+  let captured = false;
+  const capture = () => {
+    if (captured || !video.videoWidth || !video.videoHeight) return;
+    try {
+      captured = true;
+      const canvas = document.createElement("canvas");
+      const maxWidth = 480;
+      const ratio = Math.min(1, maxWidth / video.videoWidth);
+      canvas.width = Math.max(1, Math.round(video.videoWidth * ratio));
+      canvas.height = Math.max(1, Math.round(video.videoHeight * ratio));
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      video.poster = canvas.toDataURL("image/jpeg", 0.72);
+      video.currentTime = 0;
+    } catch {
+      captured = true;
+    }
+  };
+  video.addEventListener("loadeddata", capture, { once: true });
+  video.addEventListener("seeked", capture, { once: true });
+  video.addEventListener("loadedmetadata", () => {
+    try {
+      if (Number.isFinite(video.duration) && video.duration > 0) video.currentTime = Math.min(0.6, video.duration * 0.05);
+    } catch {}
+  }, { once: true });
+  window.setTimeout(capture, 1800);
+}
 
 function getVisibleVideoItems() {
   return getFilteredItems(state.items).filter((item) => (item.mediaKind || inferMediaKind(item)) === "video");
@@ -1676,6 +1880,7 @@ async function renderVideoFeed(activeItem) {
       video.playsInline = true;
       video.preload = "metadata";
       video.src = source;
+      setupVideoCompletionTracking(video, videoItem);
       panel.append(video);
     } else {
       const error = document.createElement("div");
@@ -2703,16 +2908,21 @@ async function renderPdfReader(item) {
   shell.className = "offline-reader pdf-reader";
   const title = document.createElement("h3");
   title.textContent = getDocumentName(item);
+  shell.append(title);
+
   const source = await getFullscreenSource(item);
   if (source) {
+    const frameWrap = document.createElement("div");
+    frameWrap.className = "pdf-frame-shell";
+
     const frame = document.createElement("iframe");
     frame.className = "fullscreen-pdf";
     frame.title = item.title || getDocumentName(item);
-    frame.src = source;
-    shell.append(title, frame);
-  } else {
-    shell.append(title);
+    frame.src = `${source}#toolbar=1&navpanes=0&scrollbar=1`;
+    frameWrap.append(frame);
+    shell.append(frameWrap);
   }
+
   const text = item.documentText || await (async () => {
     const blob = await getFileBlob(item);
     return blob ? extractPdfText(blob).catch(() => "") : "";
@@ -2729,10 +2939,13 @@ async function renderPdfReader(item) {
   } else {
     const note = document.createElement("p");
     note.className = "reader-note";
-    note.textContent = "PDF ditampilkan dari file offline. Jika layar PDF kosong di browser HP, gunakan tombol Buka atau Download.";
+    note.textContent = "PDF ditampilkan di viewer internal. Gunakan scroll pada area dokumen. Jika PDF kosong di WebView, tombol Keluar lalu buka ulang file.";
     shell.append(note);
   }
+
+  dom.fullscreenStage.classList.add("is-reader-stage");
   dom.fullscreenStage.replaceChildren(shell);
+  setupReadableCompletionTracking(shell, item);
 }
 
 async function renderDocxReader(item) {
@@ -2753,7 +2966,9 @@ async function renderDocxReader(item) {
     pre.textContent = item.documentText || "Word belum bisa dibaca di perangkat ini.";
     shell.append(title, pre);
   }
+  dom.fullscreenStage.classList.add("is-reader-stage");
   dom.fullscreenStage.replaceChildren(shell);
+  setupReadableCompletionTracking(shell, item);
 }
 
 function escapeHtml(value) {
@@ -2762,23 +2977,27 @@ function escapeHtml(value) {
 
 async function exportBackup() {
   if (!window.JSZip) return window.alert("JSZip belum termuat.");
-  const zip = new window.JSZip();
-  zip.file("data.json", JSON.stringify({ version: BACKUP_VERSION, exportedAt: new Date().toISOString(), items: state.items, journals: state.journals, insightCache: state.insightCache }, null, 2));
-  const folder = zip.folder("files");
-  for (const item of state.items) {
-    if (!item.fileId) continue;
-    const record = await getFileRecord(item.fileId).catch(() => null);
-    if (record?.blob) folder.file(`${item.fileId}-${sanitizeFileName(record.name || item.mediaName || "file")}`, record.blob);
-  }
-  for (const journal of state.journals) {
-    for (const attachment of journal.attachments || []) {
-      if (!attachment.fileId) continue;
-      const record = await getFileRecord(attachment.fileId).catch(() => null);
-      if (record?.blob) folder.file(`${attachment.fileId}-${sanitizeFileName(record.name || attachment.name || "file")}`, record.blob);
+  try {
+    const zip = new window.JSZip();
+    zip.file("data.json", JSON.stringify({ version: BACKUP_VERSION, exportedAt: new Date().toISOString(), items: state.items, journals: state.journals, insightCache: state.insightCache }, null, 2));
+    const folder = zip.folder("files");
+    for (const item of state.items) {
+      if (!item.fileId) continue;
+      const record = await getFileRecord(item.fileId).catch(() => null);
+      if (record?.blob) folder.file(`${item.fileId}-${sanitizeFileName(record.name || item.mediaName || "file")}`, record.blob);
     }
+    for (const journal of state.journals) {
+      for (const attachment of journal.attachments || []) {
+        if (!attachment.fileId) continue;
+        const record = await getFileRecord(attachment.fileId).catch(() => null);
+        if (record?.blob) folder.file(`${attachment.fileId}-${sanitizeFileName(record.name || attachment.name || "file")}`, record.blob);
+      }
+    }
+    const blob = await zip.generateAsync({ type: "blob" });
+    await downloadBlob(blob, `trading-library-backup-${new Date().toISOString().slice(0, 10)}.zip`);
+  } catch {
+    window.alert("Backup gagal dibuat. Cek izin penyimpanan atau ruang perangkat.");
   }
-  const blob = await zip.generateAsync({ type: "blob" });
-  downloadBlob(blob, `trading-library-backup-${new Date().toISOString().slice(0, 10)}.zip`);
 }
 
 async function exportSingleItem(id) {
@@ -2792,7 +3011,7 @@ async function exportSingleItem(id) {
     if (record?.blob) zip.folder("files").file(`${item.fileId}-${sanitizeFileName(record.name || item.mediaName || "file")}`, record.blob);
   }
   const blob = await zip.generateAsync({ type: "blob" });
-  downloadBlob(blob, `${sanitizeFileName(item.title || "item")}.zip`);
+  await downloadBlob(blob, `${sanitizeFileName(item.title || "item")}.zip`);
 }
 
 async function importBackup(event) {
@@ -2860,15 +3079,26 @@ async function importBackup(event) {
   }
 }
 
-function downloadBlob(blob, filename) {
+async function downloadBlob(blob, filename) {
+  const file = new File([blob], filename, { type: blob.type || "application/zip" });
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: filename });
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+    }
+  }
+
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
+  link.rel = "noopener";
   document.body.append(link);
   link.click();
   link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1200);
+  window.setTimeout(() => URL.revokeObjectURL(url), 3000);
 }
 
 function sanitizeFileName(value) {
@@ -2984,6 +3214,8 @@ function normalizeJournals(journals) {
     market: "",
     setup: "",
     result: "Belum selesai",
+    profit: 0,
+    loss: 0,
     plan: "",
     evaluation: "",
     mistakes: "",
@@ -3005,6 +3237,8 @@ function resetJournalForm() {
   dom.journalId.value = "";
   dom.journalDateInput.value = new Date().toISOString().slice(0, 10);
   dom.journalResultInput.value = "Belum selesai";
+  if (dom.journalProfitInput) dom.journalProfitInput.value = "";
+  if (dom.journalLossInput) dom.journalLossInput.value = "";
   dom.journalFileMeta.textContent = "Gambar chart, video, PDF, Markdown, Word";
   dom.journalMessage.textContent = "";
   state.pendingJournalFiles = [];
@@ -3046,6 +3280,8 @@ function getJournalFormData() {
     market: dom.journalMarketInput.value.trim(),
     setup: dom.journalSetupInput.value.trim(),
     result: dom.journalResultInput.value,
+    profit: parseTradeAmount(dom.journalProfitInput?.value),
+    loss: parseTradeAmount(dom.journalLossInput?.value),
     plan: dom.journalPlanInput.value.trim(),
     evaluation: dom.journalEvaluationInput.value.trim(),
     mistakes: dom.journalMistakesInput.value.trim(),
@@ -3063,7 +3299,7 @@ function getJournalFormData() {
 }
 
 function buildJournalRevisionHistory(existing, next, now) {
-  const changed = ["title", "market", "setup", "result", "plan", "evaluation", "mistakes", "lessons", "emotion"]
+  const changed = ["title", "market", "setup", "result", "profit", "loss", "plan", "evaluation", "mistakes", "lessons", "emotion"]
     .some((key) => String(existing?.[key] || "") !== String(next?.[key] || ""));
   if (!changed) return existing.revisionHistory || [];
   return [
@@ -3130,17 +3366,73 @@ async function saveJournalForm(event) {
 function renderJournals() {
   if (!dom.journalList) return;
   dom.journalList.replaceChildren();
-  const journals = [...state.journals].sort((a, b) => dateValue(b.updatedAt || b.createdAt) - dateValue(a.updatedAt || a.createdAt));
+  const journals = [...state.journals].sort((a, b) => dateValue(b.date || b.updatedAt || b.createdAt) - dateValue(a.date || a.updatedAt || a.createdAt));
   dom.journalEmpty.hidden = journals.length > 0;
   dom.journalCount.textContent = `${journals.length} jurnal`;
+  const grouped = groupJournalsByDate(journals);
   const fragment = document.createDocumentFragment();
-  journals.forEach((journal) => fragment.append(createJournalCard(journal)));
+  grouped.forEach(([date, rows]) => fragment.append(createJournalDateGroup(date, rows)));
   dom.journalList.append(fragment);
 }
 
-function createJournalCard(journal) {
+function groupJournalsByDate(journals) {
+  const map = new Map();
+  journals.forEach((journal) => {
+    const date = journal.date || new Date().toISOString().slice(0, 10);
+    if (!map.has(date)) map.set(date, []);
+    map.get(date).push(journal);
+  });
+  return [...map.entries()].sort((a, b) => dateValue(b[0]) - dateValue(a[0]));
+}
+
+function createJournalDateGroup(date, journals) {
+  const group = document.createElement("article");
+  group.className = "journal-date-group";
+  group.dataset.journalDateGroup = date;
+  const isOpen = state.journalOpenDate === date;
+  group.classList.toggle("is-open", isOpen);
+
+  const win = journals.filter((journal) => journal.result === "Win").length;
+  const loss = journals.filter((journal) => journal.result === "Loss").length;
+  const profit = journals.reduce((sum, journal) => sum + parseTradeAmount(journal.profit), 0);
+  const lossAmount = journals.reduce((sum, journal) => sum + parseTradeAmount(journal.loss), 0);
+
+  const head = document.createElement("button");
+  head.type = "button";
+  head.className = "journal-date-head";
+  head.innerHTML = `
+    <span><strong>${formatDate(date)}</strong><small>${journals.length} jurnal • ${win}W / ${loss}L</small></span>
+    <em>${formatTradeAmount(profit - lossAmount)}</em>
+    <i aria-hidden="true"></i>
+  `;
+  head.addEventListener("click", () => toggleJournalDateGroup(date));
+  group.append(head);
+
+  if (isOpen) {
+    const body = document.createElement("div");
+    body.className = "journal-date-body";
+    journals.forEach((journal) => body.append(createJournalCard(journal, state.journalOpenId === journal.id)));
+    group.append(body);
+  }
+  return group;
+}
+
+function toggleJournalDateGroup(date) {
+  state.journalOpenDate = state.journalOpenDate === date ? "" : date;
+  state.journalOpenId = "";
+  renderJournals();
+}
+
+function toggleJournalDetails(id) {
+  state.journalOpenId = state.journalOpenId === id ? "" : id;
+  renderJournals();
+  requestAnimationFrame(() => document.querySelector(`[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+}
+
+function createJournalCard(journal, expanded = false) {
   const card = document.createElement("article");
   card.className = "journal-card";
+  card.classList.toggle("is-expanded", expanded);
   card.dataset.id = journal.id;
 
   const head = document.createElement("div");
@@ -3149,7 +3441,7 @@ function createJournalCard(journal) {
   const title = document.createElement("h3");
   title.textContent = journal.title;
   const meta = document.createElement("p");
-  meta.textContent = [formatDate(journal.date), journal.market, journal.setup, journal.result].filter(Boolean).join(" • ");
+  meta.textContent = [formatDate(journal.date), journal.market, journal.setup, journal.result, getJournalProfitLossText(journal)].filter(Boolean).join(" • ");
   copy.append(title, meta);
 
   const actions = document.createElement("div");
@@ -3157,7 +3449,9 @@ function createJournalCard(journal) {
   const edit = makeJournalButton("Edit", () => editJournal(journal.id));
   const analyze = makeJournalButton("Tanya", () => askFromJournal(journal.id));
   const remove = makeJournalButton("Hapus", () => deleteJournal(journal.id), "danger");
+  [edit, analyze, remove].forEach((button) => button.addEventListener("click", (event) => event.stopPropagation()));
   actions.append(edit, analyze, remove);
+  copy.addEventListener("click", () => toggleJournalDetails(journal.id));
   head.append(copy, actions);
 
   const body = document.createElement("div");
@@ -3167,19 +3461,19 @@ function createJournalCard(journal) {
   body.append(makeJournalTextBlock("Kesalahan", journal.mistakes));
   body.append(makeJournalTextBlock("Pelajaran", journal.lessons));
   if (journal.emotion) body.append(makeJournalTextBlock("Emosi", journal.emotion));
+  body.hidden = !expanded;
 
   const attachments = document.createElement("div");
   attachments.className = "journal-attachments";
   if ((journal.attachments || []).length) {
     journal.attachments.forEach((attachment) => attachments.append(createJournalAttachment(journal, attachment)));
-  } else {
-    attachments.hidden = true;
   }
+  attachments.hidden = !expanded || !(journal.attachments || []).length;
 
   const rev = document.createElement("p");
   rev.className = "revision-line";
   rev.textContent = (journal.revisionHistory || []).length ? `${journal.revisionHistory.length} revisi tersimpan` : "";
-  rev.hidden = !(journal.revisionHistory || []).length;
+  rev.hidden = !expanded || !(journal.revisionHistory || []).length;
 
   card.append(head, body, attachments, rev);
   return card;
@@ -3257,6 +3551,8 @@ function editJournal(id) {
   dom.journalTitleInput.value = journal.title || "";
   dom.journalSetupInput.value = journal.setup || "";
   dom.journalResultInput.value = journal.result || "Belum selesai";
+  if (dom.journalProfitInput) dom.journalProfitInput.value = journal.profit ? String(journal.profit) : "";
+  if (dom.journalLossInput) dom.journalLossInput.value = journal.loss ? String(journal.loss) : "";
   dom.journalPlanInput.value = journal.plan || "";
   dom.journalEvaluationInput.value = journal.evaluation || "";
   dom.journalMistakesInput.value = journal.mistakes || "";
@@ -3276,6 +3572,28 @@ async function deleteJournal(id) {
   state.journals = state.journals.filter((entry) => entry.id !== id);
   saveJournals();
   render();
+}
+
+function parseTradeAmount(value) {
+  const normalized = String(value ?? "").replace(/,/g, ".").replace(/[^0-9.-]/g, "");
+  const number = Number.parseFloat(normalized);
+  return Number.isFinite(number) ? Math.max(0, number) : 0;
+}
+
+function formatTradeAmount(value) {
+  const number = Number(value) || 0;
+  const sign = number < 0 ? "-" : "";
+  const abs = Math.abs(number);
+  return `${sign}${abs.toLocaleString("id-ID", { maximumFractionDigits: 2 })}`;
+}
+
+function getJournalProfitLossText(journal) {
+  const profit = parseTradeAmount(journal.profit);
+  const loss = parseTradeAmount(journal.loss);
+  if (profit && loss) return `P/L ${formatTradeAmount(profit - loss)}`;
+  if (profit) return `Profit ${formatTradeAmount(profit)}`;
+  if (loss) return `Loss ${formatTradeAmount(loss)}`;
+  return "";
 }
 
 function loadAssistantSettings() {

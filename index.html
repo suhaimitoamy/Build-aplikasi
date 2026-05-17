@@ -6,8 +6,8 @@
     <meta name="theme-color" content="#050806">
     <meta name="description" content="Trading Library Manager untuk mengelola materi, indikator, gambar chart, video pembelajaran, dan dokumen trading.">
     <title>Trading Library Manager</title>
-    <link rel="manifest" href="./manifest.json?v=20260517statssidebarfinal">
-    <link rel="stylesheet" href="./style.css?v=20260517statssidebarfinal">
+    <link rel="manifest" href="./manifest.json?v=20260517fixpack1">
+    <link rel="stylesheet" href="./style.css?v=20260517fixpack1">
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'%3E%3Crect width='96' height='96' rx='24' fill='%23050806'/%3E%3Cpath d='M20 62h12V36H20v26Zm22 0h12V24H42v38Zm22 0h12V44H64v18Z' fill='%2339ff88'/%3E%3Cpath d='M18 72h60' stroke='%23f4fff7' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E">
   </head>
   <body>
@@ -215,6 +215,16 @@
                   <option value="BE">BE</option>
                   <option value="Tidak entry">Tidak entry</option>
                 </select>
+              </label>
+            </div>
+            <div class="form-grid">
+              <label class="field">
+                <span>Profit</span>
+                <input id="journalProfitInput" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Untung trade">
+              </label>
+              <label class="field">
+                <span>Loss</span>
+                <input id="journalLossInput" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Rugi trade">
               </label>
             </div>
             <label class="field">
@@ -544,7 +554,7 @@
       </div>
     </dialog>
 
-    <script src="./jszip.min.js?v=20260517statssidebarfinal" defer></script>
-    <script src="./app.js?v=20260517statssidebarfinal" defer></script>
+    <script src="./jszip.min.js?v=20260517fixpack1" defer></script>
+    <script src="./app.js?v=20260517fixpack1" defer></script>
   </body>
 </html>
