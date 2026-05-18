@@ -1,4 +1,4 @@
-const CACHE_VERSION = "20260518removeScanFileHp1";
+const CACHE_VERSION = "20260518aiControllerSessions1";
 const CACHE_NAME = `trading-library-manager-${CACHE_VERSION}`;
 
 const APP_SHELL = [

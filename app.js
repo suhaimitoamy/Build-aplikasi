@@ -5,10 +5,12 @@ const SETTINGS_KEY = "tradingLibraryManager.settings.v1";
 const DB_NAME = "tradingLibraryManager.files";
 const DB_VERSION = 1;
 const FILE_STORE = "files";
-const APP_VERSION = "20260518removeScanFileHp1";
+const APP_VERSION = "20260518aiControllerSessions1";
 const JOURNAL_STORAGE_KEY = "tradingLibraryManager.journals.v1";
 const ASSISTANT_SETTINGS_KEY = "tradingLibraryManager.assistantSettings.v1";
 const INSIGHT_CACHE_KEY = "tradingLibraryManager.insightCache.v1";
+const AI_SESSIONS_KEY = "tradingLibraryManager.aiSessions.v1";
+const AI_MEMORY_KEY = "tradingLibraryManager.aiMemory.v1";
 const PIN_KEY = "tradingLibraryManager.pinHash.v1";
 const BACKUP_VERSION = "1.0";
 const SUPPORTED_SCAN_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif", "svg", "mp4", "mkv", "webm", "ogg", "mov", "m4v", "3gp", "avi", "pdf", "doc", "docx", "md", "txt", "xls", "xlsx", "csv", "ppt", "pptx"]);
@@ -128,6 +130,11 @@ const dom = {
   aiPopupAnswer: document.querySelector("#aiPopupAnswer"),
   saveAiPopupMaterialBtn: document.querySelector("#saveAiPopupMaterialBtn"),
   clearAiPopupBtn: document.querySelector("#clearAiPopupBtn"),
+  fullscreenAiChatBtn: document.querySelector("#fullscreenAiChatBtn"),
+  newAiSessionBtn: document.querySelector("#newAiSessionBtn"),
+  toggleAiHistoryBtn: document.querySelector("#toggleAiHistoryBtn"),
+  aiSessionTitle: document.querySelector("#aiSessionTitle"),
+  aiSessionList: document.querySelector("#aiSessionList"),
   insightBox: document.querySelector("#insightBox"),
   fullscreenAnalyzeBtn: document.querySelector("#fullscreenAnalyzeBtn"),
   fullscreenDeleteBtn: document.querySelector("#fullscreenDeleteBtn"),
@@ -228,6 +235,11 @@ const state = {
   filterCache: { key: "", items: null },
   aiPopupLastQuestion: "",
   aiPopupLastAnswer: "",
+  aiSessions: [],
+  aiActiveSessionId: "",
+  aiHistoryOpen: false,
+  aiPopupFullscreen: false,
+  aiMemoryProfile: null,
   videoThumbnailObserver: null,
   videoThumbnailQueue: new Set(),
   videoThumbnailBusy: false,
@@ -243,6 +255,8 @@ async function boot() {
   state.items = normalizeItems(loadItems());
   state.journals = normalizeJournals(loadJournals());
   loadAssistantSettings();
+  loadAiSessions();
+  loadAiMemoryProfile();
   loadSettings();
   fillSelect(dom.categoryInput, categories);
   fillSelect(dom.statusInput, statuses);
@@ -348,7 +362,10 @@ function bindEvents() {
   dom.closeAiChatBtn?.addEventListener("click", closeAiChatPopup);
   dom.askAiPopupBtn?.addEventListener("click", askAiPopup);
   dom.saveAiPopupMaterialBtn?.addEventListener("click", saveAiPopupAsMaterial);
-  dom.clearAiPopupBtn?.addEventListener("click", clearAiPopupChat);
+  dom.clearAiPopupBtn?.addEventListener("click", requestClearAiPopupChat);
+  dom.fullscreenAiChatBtn?.addEventListener("click", toggleAiPopupFullscreen);
+  dom.newAiSessionBtn?.addEventListener("click", () => createNewAiSession());
+  dom.toggleAiHistoryBtn?.addEventListener("click", toggleAiHistoryPanel);
   dom.aiPopupQuestionInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -474,6 +491,7 @@ function closeTopLayerForBack() {
   if (dom.fullscreenDialog?.open) { closeFullscreenViewer(); return true; }
   if (dom.dialog?.open) { closeForm(); return true; }
   if (dom.documentDialog?.open) { closeDocumentDialog(); return true; }
+  if (dom.aiChatPopup && !dom.aiChatPopup.hidden && state.aiPopupFullscreen) { setAiPopupFullscreen(false); return true; }
   if (dom.aiChatPopup && !dom.aiChatPopup.hidden) { closeAiChatPopup(); return true; }
   if (document.querySelector(".filter-menu:not([hidden])")) { closeOpenFilterMenus(); return true; }
   if (document.querySelector(".card-menu:not([hidden])")) { closeOpenCardMenus(); return true; }
@@ -3738,7 +3756,7 @@ async function exportBackup() {
   if (!window.JSZip) return window.alert("JSZip belum termuat.");
   try {
     const zip = new window.JSZip();
-    zip.file("data.json", JSON.stringify({ version: BACKUP_VERSION, exportedAt: new Date().toISOString(), items: state.items, journals: state.journals, insightCache: state.insightCache }, null, 2));
+    zip.file("data.json", JSON.stringify({ version: BACKUP_VERSION, exportedAt: new Date().toISOString(), items: state.items, journals: state.journals, insightCache: state.insightCache, aiSessions: state.aiSessions, aiMemoryProfile: state.aiMemoryProfile }, null, 2));
     const folder = zip.folder("files");
     for (const item of state.items) {
       if (!item.fileId) continue;
@@ -3828,9 +3846,20 @@ async function importBackup(event) {
     state.items = [...existingById.values()];
     state.journals = [...existingJournalsById.values()];
     state.insightCache = payload.insightCache || state.insightCache;
+    if (Array.isArray(payload.aiSessions)) {
+      const existingSessionsById = new Map(state.aiSessions.map((session) => [session.id, session]));
+      for (const session of normalizeAiSessions(payload.aiSessions)) existingSessionsById.set(session.id, session);
+      state.aiSessions = normalizeAiSessions([...existingSessionsById.values()]);
+      state.aiActiveSessionId = state.aiSessions[0]?.id || state.aiActiveSessionId;
+      saveAiSessions();
+    }
+    state.aiMemoryProfile = payload.aiMemoryProfile || state.aiMemoryProfile;
+    if (state.aiMemoryProfile) localStorage.setItem(AI_MEMORY_KEY, JSON.stringify(state.aiMemoryProfile));
     saveItems();
     saveJournals();
     saveInsightCache();
+    renderAiSessions();
+    renderAiPopupMessages();
     render();
     window.alert("Restore selesai.");
   } catch {
@@ -4653,6 +4682,9 @@ Aturan sumber:
 Insight kebiasaan lokal:
 ${state.insightCache?.text || "Belum ada insight."}
 
+Memori lokal dari riwayat sesi chat AI:
+${buildAiMemoryText()}
+
 ${context.text}
 
 Pertanyaan pengguna:
@@ -4724,8 +4756,11 @@ function toggleAiChatPopup() {
 
 function openAiChatPopup() {
   if (!dom.aiChatPopup) return;
+  ensureActiveAiSession();
   dom.aiChatPopup.hidden = false;
   dom.aiChatToggleBtn?.classList.add("is-active");
+  renderAiSessions();
+  renderAiPopupMessages();
   requestAnimationFrame(() => dom.aiPopupQuestionInput?.focus());
 }
 
@@ -4733,6 +4768,202 @@ function closeAiChatPopup() {
   if (!dom.aiChatPopup) return;
   dom.aiChatPopup.hidden = true;
   dom.aiChatToggleBtn?.classList.remove("is-active");
+  setAiPopupFullscreen(false);
+}
+
+function toggleAiPopupFullscreen() {
+  setAiPopupFullscreen(!state.aiPopupFullscreen);
+}
+
+function setAiPopupFullscreen(value) {
+  state.aiPopupFullscreen = Boolean(value);
+  dom.aiChatPopup?.classList.toggle("is-fullscreen", state.aiPopupFullscreen);
+  if (dom.fullscreenAiChatBtn) {
+    dom.fullscreenAiChatBtn.textContent = state.aiPopupFullscreen ? "↙" : "⛶";
+    dom.fullscreenAiChatBtn.setAttribute("aria-label", state.aiPopupFullscreen ? "Keluar fullscreen AI" : "Fullscreen AI");
+  }
+}
+
+function loadAiSessions() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(AI_SESSIONS_KEY) || "[]");
+    state.aiSessions = Array.isArray(parsed) ? normalizeAiSessions(parsed) : [];
+  } catch {
+    state.aiSessions = [];
+  }
+  ensureActiveAiSession(false);
+}
+
+function normalizeAiSessions(sessions) {
+  return sessions.map((session) => ({
+    id: session.id || createId(),
+    title: String(session.title || "Chat Baru").slice(0, 80),
+    createdAt: session.createdAt || new Date().toISOString(),
+    updatedAt: session.updatedAt || session.createdAt || new Date().toISOString(),
+    messages: Array.isArray(session.messages) ? session.messages.map((message) => ({
+      id: message.id || createId(),
+      role: ["user", "assistant", "action", "system"].includes(message.role) ? message.role : "assistant",
+      text: String(message.text || "").slice(0, 12000),
+      createdAt: message.createdAt || new Date().toISOString()
+    })).slice(-80) : []
+  })).filter((session) => session.id).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)).slice(0, 50);
+}
+
+function saveAiSessions() {
+  const sessions = normalizeAiSessions(state.aiSessions);
+  state.aiSessions = sessions;
+  localStorage.setItem(AI_SESSIONS_KEY, JSON.stringify(sessions));
+  updateAiMemoryProfile();
+}
+
+function getActiveAiSession(createIfMissing = true) {
+  let session = state.aiSessions.find((entry) => entry.id === state.aiActiveSessionId);
+  if (!session && createIfMissing) session = ensureActiveAiSession(false);
+  return session || null;
+}
+
+function ensureActiveAiSession(save = true) {
+  let session = state.aiSessions.find((entry) => entry.id === state.aiActiveSessionId);
+  if (!session) {
+    session = state.aiSessions[0];
+    if (!session) {
+      const now = new Date().toISOString();
+      session = { id: createId(), title: "Chat Baru", createdAt: now, updatedAt: now, messages: [] };
+      state.aiSessions = [session];
+    }
+    state.aiActiveSessionId = session.id;
+  }
+  if (save) saveAiSessions();
+  return session;
+}
+
+function createNewAiSession() {
+  const now = new Date().toISOString();
+  const session = { id: createId(), title: "Chat Baru", createdAt: now, updatedAt: now, messages: [] };
+  state.aiSessions = [session, ...state.aiSessions].slice(0, 50);
+  state.aiActiveSessionId = session.id;
+  saveAiSessions();
+  renderAiSessions();
+  renderAiPopupMessages();
+  requestAnimationFrame(() => dom.aiPopupQuestionInput?.focus());
+}
+
+function toggleAiHistoryPanel() {
+  state.aiHistoryOpen = !state.aiHistoryOpen;
+  renderAiSessions();
+}
+
+function renderAiSessions() {
+  const session = ensureActiveAiSession(false);
+  if (dom.aiSessionTitle) dom.aiSessionTitle.textContent = session?.title || "Chat Baru";
+  if (dom.toggleAiHistoryBtn) dom.toggleAiHistoryBtn.classList.toggle("is-active", state.aiHistoryOpen);
+  if (!dom.aiSessionList) return;
+  dom.aiSessionList.hidden = !state.aiHistoryOpen;
+  dom.aiSessionList.replaceChildren();
+  if (!state.aiHistoryOpen) return;
+
+  state.aiSessions.forEach((entry) => {
+    const row = document.createElement("div");
+    row.className = `ai-session-row${entry.id === state.aiActiveSessionId ? " is-active" : ""}`;
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "ai-session-open";
+    open.innerHTML = `<strong>${escapeHtml(entry.title || "Chat Baru")}</strong><span>${formatAiSessionMeta(entry)}</span>`;
+    open.addEventListener("click", () => {
+      state.aiActiveSessionId = entry.id;
+      state.aiHistoryOpen = false;
+      saveAiSessions();
+      renderAiSessions();
+      renderAiPopupMessages();
+    });
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "ai-session-delete";
+    del.textContent = "×";
+    del.setAttribute("aria-label", `Hapus sesi ${entry.title || "Chat Baru"}`);
+    del.addEventListener("click", (event) => {
+      event.stopPropagation();
+      requestDeleteAiSession(entry.id);
+    });
+    row.append(open, del);
+    dom.aiSessionList.append(row);
+  });
+}
+
+function formatAiSessionMeta(session) {
+  const count = session.messages?.length || 0;
+  const date = session.updatedAt ? new Date(session.updatedAt).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "-";
+  return `${count} pesan • ${date}`;
+}
+
+function renderAiPopupMessages() {
+  if (!dom.aiPopupAnswer) return;
+  const session = ensureActiveAiSession(false);
+  dom.aiPopupAnswer.replaceChildren();
+  const messages = session?.messages || [];
+  if (!messages.length) {
+    dom.aiPopupAnswer.textContent = "Tanya materi, jurnal, statistik, atau pertanyaan umum di sini.";
+    if (dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = true;
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  messages.forEach((message) => {
+    const bubble = document.createElement("article");
+    bubble.className = `ai-message ai-message-${message.role}`;
+    const label = document.createElement("strong");
+    label.textContent = getAiMessageLabel(message.role);
+    const text = document.createElement("div");
+    text.className = "ai-message-text";
+    text.textContent = message.text;
+    bubble.append(label, text);
+    fragment.append(bubble);
+  });
+  dom.aiPopupAnswer.append(fragment);
+  dom.aiPopupAnswer.scrollTop = dom.aiPopupAnswer.scrollHeight;
+  if (dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = !state.aiPopupLastAnswer;
+}
+
+function getAiMessageLabel(role) {
+  if (role === "user") return "Kamu";
+  if (role === "action") return "AI Action";
+  if (role === "system") return "Sistem";
+  return "AI";
+}
+
+function addAiPopupMessage(role, text) {
+  const session = ensureActiveAiSession(false);
+  const now = new Date().toISOString();
+  const message = { id: createId(), role, text: String(text || "").slice(0, 12000), createdAt: now };
+  session.messages = [...(session.messages || []), message].slice(-80);
+  if (role === "user" && (!session.title || session.title === "Chat Baru" || session.messages.filter((entry) => entry.role === "user").length === 1)) {
+    session.title = makeAiSessionTitle(text);
+  }
+  session.updatedAt = now;
+  state.aiSessions = [session, ...state.aiSessions.filter((entry) => entry.id !== session.id)].slice(0, 50);
+  state.aiActiveSessionId = session.id;
+  saveAiSessions();
+  renderAiSessions();
+  renderAiPopupMessages();
+  return message.id;
+}
+
+function updateAiPopupMessage(messageId, text, role = "assistant") {
+  const session = getActiveAiSession(false);
+  if (!session) return;
+  const message = (session.messages || []).find((entry) => entry.id === messageId);
+  if (!message) return;
+  message.text = String(text || "").slice(0, 12000);
+  message.role = role;
+  message.createdAt = message.createdAt || new Date().toISOString();
+  session.updatedAt = new Date().toISOString();
+  saveAiSessions();
+  renderAiSessions();
+  renderAiPopupMessages();
+}
+
+function makeAiSessionTitle(text) {
+  const clean = String(text || "").replace(/\s+/g, " ").trim();
+  return clean ? clean.slice(0, 46) : "Chat Baru";
 }
 
 async function askAiPopup() {
@@ -4740,8 +4971,10 @@ async function askAiPopup() {
   if (!question) return;
   if (dom.aiPopupQuestionInput) dom.aiPopupQuestionInput.value = "";
   if (dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = true;
+  state.pendingAiAction = null;
+  addAiPopupMessage("user", question);
 
-  const localResult = handleAiActionCommand(question);
+  const localResult = await handleAiActionCommand(question);
   if (localResult) {
     state.aiPopupLastQuestion = question;
     state.aiPopupLastAnswer = localResult.text || "";
@@ -4749,97 +4982,470 @@ async function askAiPopup() {
     return;
   }
 
-  const answer = await runAssistantQuestion(question, dom.aiPopupAnswer);
+  const waitingId = addAiPopupMessage("assistant", "Menganalisis dari materi, jurnal, statistik, riwayat chat, lalu pengetahuan AI jika perlu...");
+  const answer = state.geminiApiKey ? await runAssistantQuestion(question, null) : "Isi API key dulu di Pengaturan API.";
+  updateAiPopupMessage(waitingId, answer || "Tidak ada jawaban.", "assistant");
   state.aiPopupLastQuestion = question;
-  state.aiPopupLastAnswer = answer;
+  state.aiPopupLastAnswer = answer || "";
   if (dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = !answer;
 }
 
+function requestClearAiPopupChat() {
+  showAiActionConfirmation({
+    type: "clear-session",
+    ids: [],
+    title: "Konfirmasi hapus chat",
+    message: "Hapus semua pesan pada sesi chat ini?",
+    requiresTargets: false,
+    previewLines: [getActiveAiSession(false)?.title || "Chat Baru"]
+  });
+}
+
 function clearAiPopupChat() {
+  const session = getActiveAiSession(false);
+  if (session) {
+    session.messages = [];
+    session.updatedAt = new Date().toISOString();
+    session.title = "Chat Baru";
+    saveAiSessions();
+  }
   state.aiPopupLastQuestion = "";
   state.aiPopupLastAnswer = "";
   state.pendingAiAction = null;
   if (dom.aiPopupQuestionInput) dom.aiPopupQuestionInput.value = "";
-  if (dom.aiPopupAnswer) {
-    dom.aiPopupAnswer.replaceChildren();
-    dom.aiPopupAnswer.textContent = "Tanya materi, jurnal, statistik, atau pertanyaan umum di sini.";
-  }
-  if (dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = true;
+  renderAiSessions();
+  renderAiPopupMessages();
 }
 
-function handleAiActionCommand(question) {
+function requestDeleteAiSession(id) {
+  const session = state.aiSessions.find((entry) => entry.id === id);
+  if (!session) return;
+  showAiActionConfirmation({
+    type: "delete-session",
+    sessionId: id,
+    ids: [],
+    title: "Konfirmasi hapus sesi",
+    message: `Hapus sesi "${session.title || "Chat Baru"}"?`,
+    requiresTargets: false,
+    previewLines: [`${session.title || "Chat Baru"} • ${(session.messages || []).length} pesan`]
+  });
+}
+
+async function handleAiActionCommand(question) {
   const normalized = question.toLowerCase();
-  if (/^(hapus|reset|bersihkan)\s+(chat|riwayat)/i.test(normalized)) {
-    clearAiPopupChat();
-    return { text: "Riwayat chat AI popup dihapus." };
+
+  if (/^(chat baru|mulai chat baru|new chat|sesi baru)$/i.test(normalized)) {
+    createNewAiSession();
+    addAiPopupMessage("action", "Sesi chat baru dibuat.");
+    return { text: "Sesi chat baru dibuat." };
   }
 
-  if (/^(cari|tampilkan|lihat|daftar)/i.test(normalized) && /(file|materi|video|gambar|dokumen|scan)/i.test(normalized)) {
-    const matches = findItemsForAiCommand(question).slice(0, 25);
+  if (/\b(riwayat|history|daftar sesi|sesi chat)\b/i.test(normalized) && !/hapus/i.test(normalized)) {
+    state.aiHistoryOpen = true;
+    renderAiSessions();
+    const text = `Riwayat sesi dibuka. Total sesi: ${state.aiSessions.length}.`;
+    addAiPopupMessage("action", text);
+    return { text };
+  }
+
+  if (/\b(hapus|delete|remove)\b/i.test(normalized) && /\b(semua riwayat|seluruh riwayat|semua sesi|history semua)\b/i.test(normalized)) {
+    showAiActionConfirmation({
+      type: "delete-all-sessions",
+      ids: [],
+      title: "Konfirmasi hapus semua riwayat",
+      message: "Hapus semua sesi chat AI?",
+      requiresTargets: false,
+      previewLines: state.aiSessions.slice(0, 8).map((session, index) => `${index + 1}. ${session.title || "Chat Baru"}`)
+    });
+    return { text: "Menunggu konfirmasi hapus semua riwayat chat." };
+  }
+
+  if (/^(hapus|reset|bersihkan)\s+(chat|riwayat)$/i.test(normalized) || /\bhapus sesi ini\b/i.test(normalized)) {
+    requestClearAiPopupChat();
+    return { text: "Menunggu konfirmasi hapus chat." };
+  }
+
+  const renameSession = question.match(/(?:rename|ubah nama|ganti nama)\s+(?:sesi|chat)\s+(?:menjadi|jadi|ke)\s+(.+)/i);
+  if (renameSession) {
+    const session = ensureActiveAiSession(false);
+    session.title = renameSession[1].trim().slice(0, 80) || session.title;
+    session.updatedAt = new Date().toISOString();
+    saveAiSessions();
+    renderAiSessions();
+    const text = `Nama sesi diubah menjadi: ${session.title}`;
+    addAiPopupMessage("action", text);
+    return { text };
+  }
+
+  const navView = getAiNavigationView(normalized);
+  if (navView) {
+    setView(navView);
+    closeSidebar();
+    const text = `Membuka menu ${getAiNavigationLabel(navView)}.`;
+    addAiPopupMessage("action", text);
+    return { text };
+  }
+
+  if (/\b(reset|bersihkan|clear)\b/i.test(normalized) && /\b(filter|pencarian|search)\b/i.test(normalized)) {
+    clearAllFiltersFromAi();
+    const text = "Filter dan pencarian dibersihkan.";
+    addAiPopupMessage("action", text);
+    return { text };
+  }
+
+  if (/^(cari|tampilkan|lihat|daftar|filter)/i.test(normalized) && /(file|materi|video|gambar|dokumen|pdf|word|markdown|excel|powerpoint|belum|selesai|arsip|koleksi)/i.test(normalized)) {
+    const matches = findItemsForAiCommand(question, { allowAllWhenNoKeyword: true }).slice(0, 30);
+    applyAiItemFilter(question);
     const text = matches.length
-      ? `Ditemukan ${matches.length} item:
-${matches.map((item, index) => `${index + 1}. ${item.title} • ${getItemFileType(item)} • ${item.status}${item.source === "storage-scan" ? " • hasil scan" : ""}`).join("\n")}`
+      ? `Ditemukan ${matches.length} item:\n${matches.map((item, index) => `${index + 1}. ${item.title} • ${getItemFileType(item)} • ${item.status}${item.archived ? " • arsip" : ""}`).join("\n")}`
       : "Tidak ada file/materi yang cocok.";
-    renderAiPopupText(text);
+    addAiPopupMessage("action", text);
+    return { text };
+  }
+
+  if (/^(buka|open|lanjutkan)/i.test(normalized) && /(file|materi|video|gambar|dokumen|pdf|word|markdown|excel|powerpoint|terakhir|ini)/i.test(normalized)) {
+    const matches = findItemsForAiCommand(question, { allowAllWhenNoKeyword: false });
+    const item = matches[0] || getLastUpdatedItem();
+    const text = item ? `Membuka: ${item.title}` : "Tidak ada item yang cocok untuk dibuka.";
+    if (item) {
+      setView(isMediaItem(item) || isDocumentItem(item) ? "media" : "library");
+      render();
+      if (canOpenFullscreen(item)) await showFullscreenViewer(item);
+    }
+    addAiPopupMessage("action", text);
     return { text };
   }
 
   if (/^(tambah|buat|simpan)\s+materi/i.test(normalized)) {
     const created = createMaterialFromAiCommand(question);
     const text = created ? `Materi baru dibuat: ${created.title}` : "Format: tambah materi: judul | isi materi";
-    renderAiPopupText(text);
+    addAiPopupMessage("action", text);
     return { text };
   }
 
-  if (/\b(hapus|delete|remove)\b/i.test(normalized) && /(file|materi|video|gambar|dokumen|pdf|word|markdown|excel|xls|csv|powerpoint|ppt|scan|semua)/i.test(normalized)) {
-    const matches = findItemsForAiCommand(question);
+  if (/\b(simpan jawaban|simpan chat|jadikan materi|simpan sebagai materi)\b/i.test(normalized)) {
+    saveAiPopupAsMaterial();
+    const text = "Jawaban AI terakhir disimpan sebagai materi Markdown.";
+    addAiPopupMessage("action", text);
+    return { text };
+  }
+
+  if (/\b(backup|cadangkan|export)\b/i.test(normalized)) {
+    exportBackup();
+    const text = "Backup dimulai.";
+    addAiPopupMessage("action", text);
+    return { text };
+  }
+
+  if (/\b(update|buat|refresh)\b/i.test(normalized) && /\b(insight|analisis kebiasaan|memory|memori)\b/i.test(normalized)) {
+    refreshInsightCache({ renderPanel: state.view === "assistant", showMessage: false });
+    updateAiMemoryProfile();
+    const text = buildAiMemoryText();
+    addAiPopupMessage("action", text);
+    return { text };
+  }
+
+  if (/\b(statistik|win rate|profit|loss|net|pl|p\/l|performa)\b/i.test(normalized) && !/tanya|kenapa|mengapa/i.test(normalized)) {
+    const text = buildAiStatsText(question);
+    addAiPopupMessage("action", text);
+    return { text };
+  }
+
+  if (/^(tambah|catat|buat)\s+jurnal/i.test(normalized) || /\bcatat\b/i.test(normalized) && /\b(profit|loss|be|no entry|emosi|mistake|lesson|jurnal)\b/i.test(normalized)) {
+    const journal = createJournalFromAiCommand(question);
+    const text = `Jurnal dibuat: ${journal.title} • ${journal.result} ${getJournalProfitLossText(journal)}`;
+    addAiPopupMessage("action", text);
+    return { text };
+  }
+
+  if (/^(cari|tampilkan|lihat|daftar)/i.test(normalized) && /\bjurnal\b/i.test(normalized)) {
+    const matches = findJournalsForAiCommand(question).slice(0, 20);
+    setView("journal");
+    const text = matches.length
+      ? `Ditemukan ${matches.length} jurnal:\n${matches.map((journal, index) => `${index + 1}. ${journal.date} • ${journal.title} • ${journal.market || "-"} • ${journal.result} ${getJournalProfitLossText(journal)}`).join("\n")}`
+      : "Tidak ada jurnal yang cocok.";
+    addAiPopupMessage("action", text);
+    return { text };
+  }
+
+  if (/\b(hapus|delete|remove)\b/i.test(normalized) && /\bjurnal\b/i.test(normalized)) {
+    const matches = findJournalsForAiCommand(question);
+    showAiActionConfirmation({
+      type: "delete-journal",
+      journalIds: matches.map((journal) => journal.id),
+      ids: [],
+      title: "Konfirmasi hapus jurnal",
+      message: matches.length ? `Ditemukan ${matches.length} jurnal. Hapus dari aplikasi?` : "Tidak ada jurnal yang cocok untuk dihapus.",
+      requiresTargets: true,
+      previewLines: matches.slice(0, 8).map((journal, index) => `${index + 1}. ${journal.date} • ${journal.title} • ${journal.result}`)
+    });
+    return { text: matches.length ? `Menunggu konfirmasi hapus ${matches.length} jurnal.` : "Tidak ada jurnal yang cocok untuk dihapus." };
+  }
+
+  if (/\b(hapus|delete|remove)\b/i.test(normalized) && /(file|materi|video|gambar|dokumen|pdf|word|markdown|excel|xls|csv|powerpoint|ppt|semua|ini)/i.test(normalized)) {
+    const matches = findItemsForAiCommand(question, { allowAllWhenNoKeyword: false });
     showAiActionConfirmation({
       type: "delete",
       ids: matches.map((item) => item.id),
       title: "Konfirmasi hapus",
-      message: matches.length ? `Ditemukan ${matches.length} item. Hapus dari aplikasi?` : "Tidak ada item yang cocok untuk dihapus."
+      message: matches.length ? `Ditemukan ${matches.length} item. Hapus dari aplikasi?` : "Tidak ada item yang cocok untuk dihapus.",
+      requiresTargets: true
     });
     return { text: matches.length ? `Menunggu konfirmasi hapus ${matches.length} item.` : "Tidak ada item yang cocok untuk dihapus." };
   }
 
-  if (/\b(arsip|arsipkan)\b/i.test(normalized)) {
-    const matches = findItemsForAiCommand(question);
+  if (/\b(arsip|arsipkan|archive)\b/i.test(normalized)) {
+    const matches = findItemsForAiCommand(question, { allowAllWhenNoKeyword: false });
     showAiActionConfirmation({
       type: "archive",
       ids: matches.map((item) => item.id),
       title: "Konfirmasi arsip",
-      message: matches.length ? `Ditemukan ${matches.length} item. Arsipkan?` : "Tidak ada item yang cocok untuk diarsipkan."
+      message: matches.length ? `Ditemukan ${matches.length} item. Arsipkan?` : "Tidak ada item yang cocok untuk diarsipkan.",
+      requiresTargets: true
     });
     return { text: matches.length ? `Menunggu konfirmasi arsip ${matches.length} item.` : "Tidak ada item yang cocok untuk diarsipkan." };
   }
 
-  if (/\b(ubah|ganti|set)\b/i.test(normalized) && /\b(status)\b/i.test(normalized)) {
-    const status = statuses.find((entry) => normalized.includes(entry.toLowerCase()));
+  if (/\b(keluarkan|batal arsip|unarchive|pulihkan)\b/i.test(normalized) && /\b(arsip|archive|materi|file)\b/i.test(normalized)) {
+    const matches = findItemsForAiCommand(question, { includeArchived: true, allowAllWhenNoKeyword: false }).filter((item) => item.archived);
+    showAiActionConfirmation({
+      type: "unarchive",
+      ids: matches.map((item) => item.id),
+      title: "Konfirmasi batal arsip",
+      message: matches.length ? `Ditemukan ${matches.length} item arsip. Kembalikan ke Library?` : "Tidak ada item arsip yang cocok.",
+      requiresTargets: true
+    });
+    return { text: matches.length ? `Menunggu konfirmasi batal arsip ${matches.length} item.` : "Tidak ada item arsip yang cocok." };
+  }
+
+  if (/\b(ubah|ganti|set|tandai)\b/i.test(normalized) && /\b(status|selesai|dibaca|ditonton|dipelajari|revisi)\b/i.test(normalized)) {
+    const status = getStatusFromCommand(normalized);
     if (!status) return null;
-    const matches = findItemsForAiCommand(question);
+    const matches = findItemsForAiCommand(question, { allowAllWhenNoKeyword: false });
     showAiActionConfirmation({
       type: "status",
       status,
       ids: matches.map((item) => item.id),
       title: "Konfirmasi ubah status",
-      message: matches.length ? `Ditemukan ${matches.length} item. Ubah status menjadi ${status}?` : "Tidak ada item yang cocok untuk diubah statusnya."
+      message: matches.length ? `Ditemukan ${matches.length} item. Ubah status menjadi ${status}?` : "Tidak ada item yang cocok untuk diubah statusnya.",
+      requiresTargets: true
     });
     return { text: matches.length ? `Menunggu konfirmasi ubah status ${matches.length} item.` : "Tidak ada item yang cocok untuk diubah statusnya." };
+  }
+
+  if (/\b(ubah|ganti|set)\b/i.test(normalized) && /\b(kategori|category)\b/i.test(normalized)) {
+    const category = getCategoryFromCommand(question);
+    if (!category) return null;
+    const matches = findItemsForAiCommand(question, { allowAllWhenNoKeyword: false });
+    showAiActionConfirmation({
+      type: "category",
+      category,
+      ids: matches.map((item) => item.id),
+      title: "Konfirmasi ubah kategori",
+      message: matches.length ? `Ditemukan ${matches.length} item. Ubah kategori menjadi ${category}?` : "Tidak ada item yang cocok untuk diubah kategorinya.",
+      requiresTargets: true
+    });
+    return { text: matches.length ? `Menunggu konfirmasi ubah kategori ${matches.length} item.` : "Tidak ada item yang cocok untuk diubah kategorinya." };
+  }
+
+  if (/\b(ubah|ganti|set|masukkan)\b/i.test(normalized) && /\b(koleksi|collection)\b/i.test(normalized)) {
+    const collection = getCollectionFromCommand(question);
+    if (!collection) return null;
+    const matches = findItemsForAiCommand(question, { allowAllWhenNoKeyword: false });
+    showAiActionConfirmation({
+      type: "collection",
+      collection,
+      ids: matches.map((item) => item.id),
+      title: "Konfirmasi ubah koleksi",
+      message: matches.length ? `Ditemukan ${matches.length} item. Masukkan ke koleksi ${collection}?` : "Tidak ada item yang cocok untuk diubah koleksinya.",
+      requiresTargets: true
+    });
+    return { text: matches.length ? `Menunggu konfirmasi ubah koleksi ${matches.length} item.` : "Tidak ada item yang cocok untuk diubah koleksinya." };
+  }
+
+  const renameItem = parseRenameItemCommand(question);
+  if (renameItem) {
+    const matches = findItemsForAiCommand(renameItem.oldTitle, { allowAllWhenNoKeyword: false });
+    showAiActionConfirmation({
+      type: "rename-item",
+      newTitle: renameItem.newTitle,
+      ids: matches.slice(0, 1).map((item) => item.id),
+      title: "Konfirmasi rename materi",
+      message: matches.length ? `Rename "${matches[0].title}" menjadi "${renameItem.newTitle}"?` : "Tidak ada item yang cocok untuk rename.",
+      requiresTargets: true
+    });
+    return { text: matches.length ? "Menunggu konfirmasi rename materi." : "Tidak ada item yang cocok untuk rename." };
   }
 
   return null;
 }
 
-function renderAiPopupText(text) {
-  if (!dom.aiPopupAnswer) return;
-  dom.aiPopupAnswer.replaceChildren();
-  dom.aiPopupAnswer.textContent = text;
+function getAiNavigationView(normalized) {
+  if (/\b(buka|open|ke|menu)\b/i.test(normalized)) {
+    if (/\blibrary\b/i.test(normalized)) return "library";
+    if (/\bmedia\b/i.test(normalized)) return "media";
+    if (/\bjurnal\b/i.test(normalized)) return "journal";
+    if (/\basisten|assistant|ai\b/i.test(normalized)) return "assistant";
+    if (/\bstatistik|statistics\b/i.test(normalized)) return "statistics";
+    if (/\bdashboard|status\b/i.test(normalized)) return "status";
+  }
+  return "";
 }
 
-function findItemsForAiCommand(command) {
+function getAiNavigationLabel(view) {
+  const labels = { library: "Library", media: "Media", journal: "Jurnal", assistant: "Asisten", statistics: "Statistik", status: "Dashboard" };
+  return labels[view] || view;
+}
+
+function clearAllFiltersFromAi() {
+  state.category = "Semua";
+  state.status = "Semua";
+  state.fileType = "Semua";
+  state.mediaType = "Semua";
+  state.query = "";
+  state.collectionFilter = "";
+  if (dom.searchInput) dom.searchInput.value = "";
+  if (dom.collectionFilterInput) dom.collectionFilterInput.value = "";
+  resetGridLimits();
+  saveSettings();
+  renderPills();
+  render();
+}
+
+function applyAiItemFilter(command) {
   const normalized = command.toLowerCase();
-  let items = [...state.items];
-  if (/\b(hasil scan|scan hp|file scan|storage)\b/i.test(normalized)) items = items.filter((item) => item.source === "storage-scan" || item.collection === "Scan HP" || (item.tags || []).includes("Scan HP"));
+  if (/\bvideo\b/i.test(normalized)) state.fileType = "Video";
+  else if (/\bgambar\b/i.test(normalized)) state.fileType = "Gambar";
+  else if (/\bpdf\b/i.test(normalized)) state.fileType = "PDF";
+  else if (/\bword|doc|docx\b/i.test(normalized)) state.fileType = "Word";
+  else if (/\bmarkdown|md|txt\b/i.test(normalized)) state.fileType = "Markdown";
+  else if (/\bexcel|xls|xlsx|csv\b/i.test(normalized)) state.fileType = "Excel";
+  else if (/\bpowerpoint|ppt|pptx\b/i.test(normalized)) state.fileType = "PowerPoint";
+  if (/\bbelum\b/i.test(normalized)) state.status = "Belum dibaca";
+  if (/\bselesai|sudah\b/i.test(normalized)) state.status = "Selesai";
+  if (/\barsip\b/i.test(normalized)) state.showArchived = true;
+  setView(/\bmedia|video|gambar\b/i.test(normalized) ? "media" : "library", false);
+  resetGridLimits();
+  saveSettings();
+  renderPills();
+  render();
+}
+
+function getLastUpdatedItem() {
+  return [...state.items].sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0))[0] || null;
+}
+
+function getStatusFromCommand(normalized) {
+  if (/\bbelum\b/i.test(normalized)) return "Belum dibaca";
+  if (/\bdipelajari|belajar\b/i.test(normalized)) return "Dipelajari";
+  if (/\bdipakai|pakai\b/i.test(normalized)) return "Dipakai";
+  if (/\brevisi\b/i.test(normalized)) return "Perlu revisi";
+  if (/\bselesai|sudah dibaca|sudah ditonton|done\b/i.test(normalized)) return "Selesai";
+  return statuses.find((entry) => normalized.includes(entry.toLowerCase())) || "";
+}
+
+function getCategoryFromCommand(command) {
+  const normalized = command.toLowerCase();
+  return categories.find((entry) => normalized.includes(entry.toLowerCase())) || "";
+}
+
+function getCollectionFromCommand(command) {
+  const match = command.match(/(?:koleksi|collection)\s+(?:menjadi|jadi|ke|:)?\s*([^|.,]+)/i);
+  return match ? match[1].trim().slice(0, 80) : "";
+}
+
+function parseRenameItemCommand(command) {
+  const match = command.match(/(?:rename|ubah judul|ganti judul)\s+(?:materi|file)?\s*(.+?)\s+(?:menjadi|jadi|ke)\s+(.+)/i);
+  if (!match) return null;
+  return { oldTitle: match[1].trim(), newTitle: match[2].trim().slice(0, 120) };
+}
+
+function buildAiStatsText(command = "") {
+  const stats = calculateJournalStats(state.journals);
+  const resultCounts = countBy(state.journals, (journal) => journal.result || "Belum selesai");
+  const emotionCounts = countBy(state.journals, (journal) => journal.emotion || "Tanpa emosi");
+  const mistakeCounts = getKeywordRows().slice(0, 5).map((row) => `${row.label} (${row.count})`).join(", ") || "belum cukup data";
+  return [
+    `Total jurnal: ${state.journals.length}`,
+    `Win rate: ${stats.winRate}%`,
+    `Total profit: ${formatTradeAmount(stats.totalProfit)}`,
+    `Total loss: ${formatTradeAmount(stats.totalLoss)}`,
+    `Net P/L: ${formatTradeAmount(stats.netProfit)}`,
+    `Hasil: ${formatCountMap(resultCounts)}`,
+    `Emosi dominan: ${formatCountMap(emotionCounts)}`,
+    `Kesalahan/pola dominan: ${mistakeCounts}`
+  ].join("\n");
+}
+
+function createJournalFromAiCommand(command) {
+  const now = new Date().toISOString();
+  const today = now.slice(0, 10);
+  const profitMatch = command.match(/profit\s*(?:rp|idr|usd)?\s*([0-9.,]+)/i);
+  const lossMatch = command.match(/loss\s*(?:rp|idr|usd)?\s*([0-9.,]+)/i);
+  const marketMatch = command.match(/(?:pair|market|symbol)\s*:?\s*([a-zA-Z0-9/._-]+)/i);
+  const emotionMatch = command.match(/(?:emosi|emotion)\s*:?\s*([^|.,]+)/i);
+  const mistakeMatch = command.match(/(?:mistake|kesalahan)\s*:?\s*([^|.]+)/i);
+  const lessonMatch = command.match(/(?:lesson|pelajaran)\s*:?\s*([^|.]+)/i);
+  let result = "Belum selesai";
+  if (/\b(win|profit)\b/i.test(command)) result = "Win";
+  if (/\b(loss|rugi)\b/i.test(command)) result = "Loss";
+  if (/\b(be|break even|breakeven)\b/i.test(command)) result = "BE";
+  if (/\b(no entry|tidak entry)\b/i.test(command)) result = "No Entry";
+  const journal = {
+    id: createId(),
+    date: today,
+    title: `Jurnal AI ${today}`,
+    market: marketMatch ? marketMatch[1].toUpperCase() : "",
+    setup: extractSetupFromJournalCommand(command),
+    result,
+    profit: profitMatch ? parseTradeAmount(profitMatch[1]) : 0,
+    loss: lossMatch ? parseTradeAmount(lossMatch[1]) : 0,
+    plan: command,
+    evaluation: "Dicatat lewat AI Action Mode.",
+    mistakes: mistakeMatch ? mistakeMatch[1].trim() : "",
+    lessons: lessonMatch ? lessonMatch[1].trim() : "",
+    emotion: emotionMatch ? emotionMatch[1].trim() : "",
+    attachments: [],
+    revisionHistory: [],
+    createdAt: now,
+    updatedAt: now
+  };
+  state.journals = [journal, ...state.journals];
+  saveJournals();
+  render();
+  return journal;
+}
+
+function extractSetupFromJournalCommand(command) {
+  const match = command.match(/(?:setup|model)\s*:?\s*([^|.,]+)/i);
+  return match ? match[1].trim().slice(0, 120) : "";
+}
+
+function findJournalsForAiCommand(command) {
+  const normalized = command.toLowerCase();
+  let journals = [...state.journals];
+  if (/\bhari ini\b/i.test(normalized)) journals = journals.filter((journal) => journal.date === new Date().toISOString().slice(0, 10));
+  if (/\bbulan ini\b/i.test(normalized)) {
+    const month = new Date().toISOString().slice(0, 7);
+    journals = journals.filter((journal) => String(journal.date || "").startsWith(month));
+  }
+  if (/\bprofit|win\b/i.test(normalized)) journals = journals.filter((journal) => journal.result === "Win" || parseTradeAmount(journal.profit));
+  if (/\bloss|rugi\b/i.test(normalized)) journals = journals.filter((journal) => journal.result === "Loss" || parseTradeAmount(journal.loss));
+  const keywords = extractAiKeywords(command, "journal");
+  if (keywords.length && !/\bsemua\b/i.test(normalized)) {
+    journals = journals.filter((journal) => {
+      const haystack = [journal.title, journal.market, journal.setup, journal.result, journal.plan, journal.evaluation, journal.mistakes, journal.lessons, journal.emotion, journal.date].join(" ").toLowerCase();
+      return keywords.every((word) => haystack.includes(word));
+    });
+  }
+  return journals;
+}
+
+function findItemsForAiCommand(command, options = {}) {
+  const normalized = command.toLowerCase();
+  const includeArchived = Boolean(options.includeArchived) || /\barsip|archive\b/i.test(normalized);
+  let items = includeArchived ? [...state.items] : state.items.filter((item) => !item.archived);
+
   if (/\bvideo\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "Video");
   if (/\bgambar\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "Gambar");
   if (/\b(pdf)\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "PDF");
@@ -4849,22 +5455,30 @@ function findItemsForAiCommand(command) {
   if (/\b(powerpoint|ppt|pptx)\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "PowerPoint");
   if (/\b(dokumen|document)\b/i.test(normalized)) items = items.filter((item) => ["Dokumen", "PDF", "Word", "Markdown", "Excel", "PowerPoint"].includes(getItemFileType(item)));
   if (/\bbelum (dibaca|ditonton|selesai)\b/i.test(normalized)) items = items.filter((item) => item.status === "Belum dibaca");
-  if (/\b(selesai|sudah dibaca|sudah ditonton)\b/i.test(normalized) && !/ubah|ganti|set/i.test(normalized)) items = items.filter((item) => item.status === "Selesai");
+  if (/\b(selesai|sudah dibaca|sudah ditonton)\b/i.test(normalized) && !/ubah|ganti|set|tandai/i.test(normalized)) items = items.filter((item) => item.status === "Selesai");
 
-  const keywords = extractItemSearchKeywords(command);
+  const category = getCategoryFromCommand(command);
+  if (category && !/\b(ubah|ganti|set)\b/i.test(normalized)) items = items.filter((item) => item.category === category);
+
+  const active = state.activeFullscreenItem;
+  if (/\bini\b/i.test(normalized) && active?.id) return items.filter((item) => item.id === active.id);
+
+  const keywords = extractAiKeywords(command, "item");
   if (keywords.length && !/\bsemua\b/i.test(normalized)) {
     items = items.filter((item) => {
       const haystack = [item.title, item.mediaName, item.category, item.status, item.collection, item.notes, ...(item.tags || [])].join(" ").toLowerCase();
       return keywords.every((word) => haystack.includes(word));
     });
   }
+
+  if (!keywords.length && !/\bsemua\b/i.test(normalized) && options.allowAllWhenNoKeyword === false) return [];
   return items;
 }
 
-function extractItemSearchKeywords(command) {
+function extractAiKeywords(command, mode = "item") {
   const normalized = command.toLowerCase()
-    .replace(/\b(hapus|delete|remove|arsip|arsipkan|ubah|ganti|set|status|menjadi|ke|cari|tampilkan|lihat|daftar|file|materi|video|gambar|dokumen|pdf|word|doc|docx|markdown|md|txt|excel|xls|xlsx|csv|powerpoint|ppt|pptx|hasil|scan|storage|hp|semua|yang|belum|pernah|dibaca|ditonton|selesai|sudah|dari|aplikasi)\b/g, " ")
-    .replace(/[^a-z0-9_.-]+/g, " ")
+    .replace(/\b(hapus|delete|remove|arsip|arsipkan|archive|unarchive|pulihkan|keluarkan|ubah|ganti|set|status|kategori|category|koleksi|collection|rename|judul|menjadi|jadi|ke|cari|tampilkan|lihat|daftar|filter|buka|open|lanjutkan|file|materi|video|gambar|dokumen|document|pdf|word|doc|docx|markdown|md|txt|excel|xls|xlsx|csv|powerpoint|ppt|pptx|semua|yang|belum|pernah|dibaca|ditonton|selesai|sudah|dari|aplikasi|ini|terakhir|jurnal|hari|bulan|profit|loss|win|be|no|entry|pair|market|setup|model|emosi|emotion|mistake|kesalahan|lesson|pelajaran|catat|buat|tambah)\b/g, " ")
+    .replace(/[^a-z0-9_.\/-]+/g, " ")
     .trim();
   return normalized.split(/\s+/).filter((word) => word.length > 2).slice(0, 8);
 }
@@ -4872,7 +5486,7 @@ function extractItemSearchKeywords(command) {
 function showAiActionConfirmation(action) {
   if (!dom.aiPopupAnswer) return;
   state.pendingAiAction = action;
-  dom.aiPopupAnswer.replaceChildren();
+  renderAiPopupMessages();
   const wrap = document.createElement("div");
   wrap.className = "ai-action-confirm";
   const title = document.createElement("strong");
@@ -4881,15 +5495,15 @@ function showAiActionConfirmation(action) {
   message.textContent = action.message;
   const preview = document.createElement("div");
   preview.className = "ai-action-preview";
-  const matched = state.items.filter((item) => action.ids.includes(item.id)).slice(0, 8);
-  preview.textContent = matched.map((item, index) => `${index + 1}. ${item.title} • ${getItemFileType(item)}`).join("\n");
+  const matched = Array.isArray(action.previewLines) ? action.previewLines : state.items.filter((item) => (action.ids || []).includes(item.id)).slice(0, 8).map((item, index) => `${index + 1}. ${item.title} • ${getItemFileType(item)}`);
+  preview.textContent = matched.join("\n");
   const buttons = document.createElement("div");
   buttons.className = "ai-action-buttons";
   const yes = document.createElement("button");
   yes.type = "button";
   yes.className = "primary-button";
   yes.textContent = "YES";
-  yes.disabled = !action.ids.length;
+  yes.disabled = Boolean(action.requiresTargets) && !(action.ids?.length || action.journalIds?.length || action.sessionId);
   yes.addEventListener("click", confirmPendingAiAction);
   const no = document.createElement("button");
   no.type = "button";
@@ -4901,6 +5515,7 @@ function showAiActionConfirmation(action) {
   if (preview.textContent) wrap.append(preview);
   wrap.append(buttons);
   dom.aiPopupAnswer.append(wrap);
+  dom.aiPopupAnswer.scrollTop = dom.aiPopupAnswer.scrollHeight;
 }
 
 async function confirmPendingAiAction() {
@@ -4908,30 +5523,140 @@ async function confirmPendingAiAction() {
   if (!action) return;
   state.pendingAiAction = null;
   const now = new Date().toISOString();
+  let text = "Aksi selesai.";
+
   if (action.type === "delete") {
-    const ok = await deleteItemsByIds(action.ids);
-    renderAiPopupText(ok ? `Selesai. ${action.ids.length} item dihapus dari aplikasi.` : "Hapus dibatalkan/gagal.");
-    return;
-  }
-  if (action.type === "archive") {
-    state.items = state.items.map((item) => action.ids.includes(item.id) ? { ...item, archived: true, updatedAt: now } : item);
+    const ok = await deleteItemsByIds(action.ids || []);
+    text = ok ? `Selesai. ${(action.ids || []).length} item dihapus dari aplikasi.` : "Hapus dibatalkan/gagal.";
+  } else if (action.type === "archive") {
+    state.items = state.items.map((item) => (action.ids || []).includes(item.id) ? { ...item, archived: true, updatedAt: now } : item);
     saveItems();
     render();
-    renderAiPopupText(`Selesai. ${action.ids.length} item diarsipkan.`);
-    return;
-  }
-  if (action.type === "status") {
-    state.items = state.items.map((item) => action.ids.includes(item.id) ? { ...item, status: action.status, updatedAt: now } : item);
+    text = `Selesai. ${(action.ids || []).length} item diarsipkan.`;
+  } else if (action.type === "unarchive") {
+    state.items = state.items.map((item) => (action.ids || []).includes(item.id) ? { ...item, archived: false, updatedAt: now } : item);
     saveItems();
     render();
-    renderAiPopupText(`Selesai. ${action.ids.length} item diubah menjadi ${action.status}.`);
+    text = `Selesai. ${(action.ids || []).length} item dikembalikan dari arsip.`;
+  } else if (action.type === "status") {
+    state.items = state.items.map((item) => (action.ids || []).includes(item.id) ? { ...item, status: action.status, updatedAt: now } : item);
+    saveItems();
+    render();
+    text = `Selesai. ${(action.ids || []).length} item diubah menjadi ${action.status}.`;
+  } else if (action.type === "category") {
+    state.items = state.items.map((item) => (action.ids || []).includes(item.id) ? { ...item, category: action.category, updatedAt: now } : item);
+    saveItems();
+    renderPills();
+    render();
+    text = `Selesai. ${(action.ids || []).length} item diubah ke kategori ${action.category}.`;
+  } else if (action.type === "collection") {
+    state.items = state.items.map((item) => (action.ids || []).includes(item.id) ? { ...item, collection: action.collection, updatedAt: now } : item);
+    saveItems();
+    render();
+    text = `Selesai. ${(action.ids || []).length} item dimasukkan ke koleksi ${action.collection}.`;
+  } else if (action.type === "rename-item") {
+    state.items = state.items.map((item) => (action.ids || []).includes(item.id) ? { ...item, title: action.newTitle, updatedAt: now } : item);
+    saveItems();
+    render();
+    text = `Selesai. Judul materi diubah menjadi ${action.newTitle}.`;
+  } else if (action.type === "delete-journal") {
+    const ids = action.journalIds || [];
+    const selected = state.journals.filter((journal) => ids.includes(journal.id));
+    await Promise.all(selected.flatMap((journal) => (journal.attachments || []).map((attachment) => deleteFileRecord(attachment.fileId).catch(() => {}))));
+    state.journals = state.journals.filter((journal) => !ids.includes(journal.id));
+    saveJournals();
+    render();
+    text = `Selesai. ${ids.length} jurnal dihapus dari aplikasi.`;
+  } else if (action.type === "clear-session") {
+    clearAiPopupChat();
+    return;
+  } else if (action.type === "delete-session") {
+    state.aiSessions = state.aiSessions.filter((session) => session.id !== action.sessionId);
+    state.aiActiveSessionId = state.aiSessions[0]?.id || "";
+    ensureActiveAiSession(false);
+    saveAiSessions();
+    renderAiSessions();
+    renderAiPopupMessages();
+    text = "Sesi chat dihapus.";
+  } else if (action.type === "delete-all-sessions") {
+    state.aiSessions = [];
+    state.aiActiveSessionId = "";
+    ensureActiveAiSession(false);
+    saveAiSessions();
+    renderAiSessions();
+    renderAiPopupMessages();
+    text = "Semua riwayat chat AI dihapus.";
   }
+
+  addAiPopupMessage("action", text);
 }
 
 function cancelPendingAiAction() {
   state.pendingAiAction = null;
-  renderAiPopupText("Aksi dibatalkan.");
+  addAiPopupMessage("action", "Aksi dibatalkan.");
 }
+
+function renderAiPopupText(text) {
+  addAiPopupMessage("assistant", text);
+}
+
+function loadAiMemoryProfile() {
+  try {
+    state.aiMemoryProfile = JSON.parse(localStorage.getItem(AI_MEMORY_KEY) || "null");
+  } catch {
+    state.aiMemoryProfile = null;
+  }
+}
+
+function updateAiMemoryProfile() {
+  try {
+    const userMessages = state.aiSessions.flatMap((session) => (session.messages || []).filter((message) => message.role === "user").map((message) => message.text)).slice(-80);
+    const actionMessages = state.aiSessions.flatMap((session) => (session.messages || []).filter((message) => message.role === "action").map((message) => message.text)).slice(-40);
+    const allText = [...userMessages, ...actionMessages, state.insightCache?.text || ""].join("\n").toLowerCase();
+    const topics = getMemoryTopicRows(allText);
+    const profile = {
+      updatedAt: new Date().toISOString(),
+      totalSessions: state.aiSessions.length,
+      totalMessages: state.aiSessions.reduce((sum, session) => sum + ((session.messages || []).length), 0),
+      topics,
+      recentQuestions: userMessages.slice(-8),
+      recentActions: actionMessages.slice(-8)
+    };
+    state.aiMemoryProfile = profile;
+    localStorage.setItem(AI_MEMORY_KEY, JSON.stringify(profile));
+  } catch {}
+}
+
+function getMemoryTopicRows(text) {
+  const topicMap = {
+    "ICT": ["ict", "liquidity", "fvg", "order block", "ob", "breaker", "mss", "bos", "choch"],
+    "Entry": ["entry", "setup", "confirmation", "valid", "invalid"],
+    "Risk management": ["risk", "rr", "lot", "sl", "stop loss", "loss"],
+    "Jurnal": ["jurnal", "profit", "loss", "win rate", "emosi", "mistake", "lesson"],
+    "Manajemen materi": ["hapus", "arsip", "status", "kategori", "koleksi", "materi"]
+  };
+  return Object.entries(topicMap).map(([label, words]) => ({
+    label,
+    count: words.reduce((sum, word) => sum + countOccurrences(text, word), 0)
+  })).filter((row) => row.count).sort((a, b) => b.count - a.count).slice(0, 5);
+}
+
+function buildAiMemoryText() {
+  updateAiMemoryProfile();
+  const profile = state.aiMemoryProfile;
+  if (!profile) return "Belum ada memori riwayat chat.";
+  const topics = profile.topics?.length ? profile.topics.map((row) => `${row.label} (${row.count})`).join(", ") : "belum cukup pola";
+  const questions = profile.recentQuestions?.length ? profile.recentQuestions.slice(-5).map((text) => `- ${text}`).join("\n") : "Belum ada pertanyaan terbaru.";
+  const actions = profile.recentActions?.length ? profile.recentActions.slice(-5).map((text) => `- ${text}`).join("\n") : "Belum ada aksi terbaru.";
+  return [
+    `Total sesi: ${profile.totalSessions}`,
+    `Total pesan tersimpan: ${profile.totalMessages}`,
+    `Topik dominan dari riwayat: ${topics}`,
+    `Pertanyaan terbaru:\n${questions}`,
+    `Aksi terbaru:\n${actions}`
+  ].join("\n");
+}
+
 
 function createMaterialFromAiCommand(command) {
   const raw = command.replace(/^\s*(tambah|buat|simpan)\s+materi\s*:?/i, "").trim();
@@ -4979,13 +5704,18 @@ ${body}
 }
 
 function saveAiPopupAsMaterial() {
-  const question = state.aiPopupLastQuestion || dom.aiPopupQuestionInput?.value.trim() || "";
-  const answer = state.aiPopupLastAnswer || dom.aiPopupAnswer?.textContent || "";
+  const session = getActiveAiSession(false);
+  const messages = session?.messages || [];
+  const lastUser = [...messages].reverse().find((message) => message.role === "user")?.text || "";
+  const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant")?.text || "";
+  const question = state.aiPopupLastQuestion || lastUser || dom.aiPopupQuestionInput?.value.trim() || "";
+  const answer = state.aiPopupLastAnswer || lastAssistant || "";
   if (!question || !answer) return;
   const now = new Date();
   const iso = now.toISOString();
   const title = `Catatan AI ${iso.slice(0, 10)} ${String(now.getHours()).padStart(2, "0")}.${String(now.getMinutes()).padStart(2, "0")}`;
-  const markdown = `# ${title}\n\n## Pertanyaan\n${question}\n\n## Jawaban\n${answer}\n`;
+  const sessionHistory = messages.length ? `\n\n## Riwayat Sesi\n${messages.map((message) => `### ${getAiMessageLabel(message.role)}\n${message.text}`).join("\n\n")}` : "";
+  const markdown = `# ${title}\n\n## Pertanyaan\n${question}\n\n## Jawaban\n${answer}${sessionHistory}\n`;
   const encoded = encodeURIComponent(markdown);
   const item = {
     id: createId(),
@@ -5018,7 +5748,7 @@ function saveAiPopupAsMaterial() {
   saveItems();
   resetGridLimits();
   render();
-  if (dom.aiPopupAnswer) dom.aiPopupAnswer.textContent = `${answer}\n\n✓ Disimpan sebagai materi: ${title}`;
+  addAiPopupMessage("action", `Disimpan sebagai materi: ${title}`);
 }
 
 async function askFromJournal(id) {
