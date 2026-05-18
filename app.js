@@ -5,7 +5,7 @@ const SETTINGS_KEY = "tradingLibraryManager.settings.v1";
 const DB_NAME = "tradingLibraryManager.files";
 const DB_VERSION = 1;
 const FILE_STORE = "files";
-const APP_VERSION = "20260518pwaGithubPages1";
+const APP_VERSION = "20260518githubPageWebAI1";
 const JOURNAL_STORAGE_KEY = "tradingLibraryManager.journals.v1";
 const ASSISTANT_SETTINGS_KEY = "tradingLibraryManager.assistantSettings.v1";
 const INSIGHT_CACHE_KEY = "tradingLibraryManager.insightCache.v1";
@@ -252,7 +252,7 @@ async function boot() {
   render();
   initBackGuard();
   await migrateLegacyFiles();
-  registerServiceWorker();
+  disableServiceWorkerForWebPage();
 }
 
 function bindEvents() {
@@ -402,14 +402,6 @@ function bindEvents() {
     event.preventDefault();
     closeFullscreenViewer();
   });
-
-  window.addEventListener("beforeinstallprompt", (event) => {
-    event.preventDefault();
-    state.deferredInstallPrompt = event;
-    dom.installBtn.hidden = false;
-  });
-
-  dom.installBtn.addEventListener("click", installApp);
 
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
@@ -3435,30 +3427,19 @@ function createId() {
 }
 
 async function installApp() {
-  if (!state.deferredInstallPrompt) return;
-  state.deferredInstallPrompt.prompt();
-  await state.deferredInstallPrompt.userChoice;
-  state.deferredInstallPrompt = null;
-  dom.installBtn.hidden = true;
+  return;
 }
 
-function registerServiceWorker() {
+function disableServiceWorkerForWebPage() {
   clearOldAppCaches().catch(() => {});
   if (!("serviceWorker" in navigator)) return;
-
-  let refreshing = false;
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (refreshing) return;
-    refreshing = true;
-    window.location.reload();
-  });
-
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register(`./service-worker.js?v=${APP_VERSION}`).then((registration) => {
-      registration.update?.();
-    }).catch(() => {
-      // PWA tetap berjalan sebagai aplikasi web statis jika registrasi gagal.
-    });
+    navigator.serviceWorker.getRegistrations?.().then((registrations) => {
+      registrations.forEach((registration) => {
+        const scope = registration.scope || "";
+        if (scope.startsWith(location.origin)) registration.unregister().catch(() => {});
+      });
+    }).catch(() => {});
   });
 }
 
@@ -4359,14 +4340,14 @@ function getJournalProfitLossText(journal) {
 function loadAssistantSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem(ASSISTANT_SETTINGS_KEY) || "{}");
-    state.aiProvider = saved.provider || saved.aiProvider || "gemini";
-    state.geminiApiKey = saved.apiKey || "";
+    state.aiProvider = normalizeProvider(saved.provider || saved.aiProvider || "openrouter");
+    state.geminiApiKey = normalizeApiKey(saved.apiKey || "");
     state.geminiModel = saved.model || getDefaultModelForProvider(state.aiProvider);
     state.aiBaseUrl = saved.baseUrl || "";
   } catch {
-    state.aiProvider = "gemini";
+    state.aiProvider = "openrouter";
     state.geminiApiKey = "";
-    state.geminiModel = getDefaultModelForProvider("gemini");
+    state.geminiModel = getDefaultModelForProvider("openrouter");
     state.aiBaseUrl = "";
   }
   try {
@@ -4377,8 +4358,8 @@ function loadAssistantSettings() {
 }
 
 function saveGeminiSettings(showMessage = true) {
-  state.aiProvider = dom.aiProviderInput?.value || state.aiProvider || "gemini";
-  state.geminiApiKey = dom.geminiApiKeyInput?.value.trim() || "";
+  state.aiProvider = normalizeProvider(dom.aiProviderInput?.value || state.aiProvider || "openrouter");
+  state.geminiApiKey = normalizeApiKey(dom.geminiApiKeyInput?.value || "");
   state.geminiModel = dom.geminiModelInput?.value.trim() || getDefaultModelForProvider(state.aiProvider);
   state.aiBaseUrl = normalizeBaseUrl(dom.aiBaseUrlInput?.value.trim() || "");
   localStorage.setItem(ASSISTANT_SETTINGS_KEY, JSON.stringify({
@@ -4389,12 +4370,12 @@ function saveGeminiSettings(showMessage = true) {
   }));
   syncProviderFields();
   if (showMessage && dom.assistantMessage) {
-    dom.assistantMessage.textContent = state.geminiApiKey ? `API ${getProviderLabel(state.aiProvider)} tersimpan lokal di PWA.` : "API key kosong.";
+    dom.assistantMessage.textContent = state.geminiApiKey ? `API ${getProviderLabel(state.aiProvider)} tersimpan lokal di webpage.` : "API key kosong.";
   }
 }
 
 function clearGeminiSettings() {
-  state.aiProvider = dom.aiProviderInput?.value || "gemini";
+  state.aiProvider = normalizeProvider(dom.aiProviderInput?.value || "openrouter");
   state.geminiApiKey = "";
   state.geminiModel = getDefaultModelForProvider(state.aiProvider);
   state.aiBaseUrl = "";
@@ -4408,7 +4389,7 @@ function clearGeminiSettings() {
 
 function renderAssistantPanel() {
   if (!dom.geminiApiKeyInput) return;
-  if (dom.aiProviderInput && document.activeElement !== dom.aiProviderInput) dom.aiProviderInput.value = state.aiProvider || "gemini";
+  if (dom.aiProviderInput && document.activeElement !== dom.aiProviderInput) dom.aiProviderInput.value = state.aiProvider || "openrouter";
   if (document.activeElement !== dom.geminiApiKeyInput) dom.geminiApiKeyInput.value = state.geminiApiKey || "";
   if (document.activeElement !== dom.geminiModelInput) dom.geminiModelInput.value = state.geminiModel || getDefaultModelForProvider(state.aiProvider);
   if (dom.aiBaseUrlInput && document.activeElement !== dom.aiBaseUrlInput) dom.aiBaseUrlInput.value = state.aiBaseUrl || "";
@@ -4417,7 +4398,7 @@ function renderAssistantPanel() {
 }
 
 function syncProviderFields() {
-  const provider = dom.aiProviderInput?.value || state.aiProvider || "gemini";
+  const provider = normalizeProvider(dom.aiProviderInput?.value || state.aiProvider || "openrouter");
   state.aiProvider = provider;
   const defaultModel = getDefaultModelForProvider(provider);
   if (dom.geminiModelInput) {
@@ -4433,7 +4414,7 @@ function syncProviderFields() {
 }
 
 function handleProviderChange() {
-  const provider = dom.aiProviderInput?.value || "gemini";
+  const provider = normalizeProvider(dom.aiProviderInput?.value || "openrouter");
   state.aiProvider = provider;
   const defaultModel = getDefaultModelForProvider(provider);
   if (dom.geminiModelInput) dom.geminiModelInput.value = defaultModel;
@@ -4449,7 +4430,7 @@ function getDefaultModelForProvider(provider) {
     openai: "gpt-4o-mini",
     custom: ""
   };
-  return defaults[provider] || defaults.gemini;
+  return defaults[provider] || defaults.openrouter;
 }
 
 function getProviderLabel(provider) {
@@ -4466,6 +4447,26 @@ function getProviderLabel(provider) {
 
 function normalizeBaseUrl(value) {
   return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function normalizeProvider(value) {
+  const provider = String(value || "").trim().toLowerCase();
+  const aliases = {
+    openrouterai: "openrouter",
+    open_router: "openrouter",
+    openai: "openai",
+    gemini: "gemini",
+    google: "gemini",
+    groq: "groq",
+    mistral: "mistral",
+    mimo: "mistral",
+    custom: "custom"
+  };
+  return aliases[provider] || provider || "openrouter";
+}
+
+function normalizeApiKey(value) {
+  return String(value || "").trim().replace(/^Bearer\s+/i, "");
 }
 
 function saveInsightCache() {
@@ -4615,6 +4616,7 @@ function formatCountMap(entries) {
 
 async function testGeminiConnection() {
   saveGeminiSettings(false);
+  state.geminiApiKey = normalizeApiKey(state.geminiApiKey || dom.geminiApiKeyInput?.value || "");
   if (!state.geminiApiKey) {
     dom.assistantMessage.textContent = "Isi API key dulu.";
     return;
@@ -4635,6 +4637,7 @@ async function askAssistant() {
 
 async function runAssistantQuestion(question, targetElement) {
   saveGeminiSettings();
+  state.geminiApiKey = normalizeApiKey(state.geminiApiKey || dom.geminiApiKeyInput?.value || "");
   if (!question) return "";
   if (!state.geminiApiKey) {
     if (targetElement) targetElement.textContent = "Isi API key dulu di Pengaturan API.";
@@ -5076,11 +5079,14 @@ async function callGeminiProvider(parts) {
 async function callOpenAICompatibleProvider(parts, provider) {
   const endpoint = getChatCompletionEndpoint(provider);
   const content = partsToOpenAIContent(parts);
+  const model = state.geminiModel || getDefaultModelForProvider(provider);
   const response = await fetch(endpoint, {
     method: "POST",
+    mode: "cors",
+    credentials: "omit",
     headers: getOpenAICompatibleHeaders(provider),
     body: JSON.stringify({
-      model: state.geminiModel || getDefaultModelForProvider(provider),
+      model,
       messages: [
         {
           role: "system",
@@ -5113,12 +5119,14 @@ function getChatCompletionEndpoint(provider) {
 }
 
 function getOpenAICompatibleHeaders(provider) {
+  const apiKey = normalizeApiKey(state.geminiApiKey || dom.geminiApiKeyInput?.value || "");
+  if (!apiKey) throw new Error("Isi API key dulu.");
   const headers = {
     "Content-Type": "application/json",
-    "Authorization": `Bearer ${state.geminiApiKey}`
+    "Authorization": `Bearer ${apiKey}`
   };
   if (provider === "openrouter") {
-    headers["HTTP-Referer"] = location.origin;
+    headers["HTTP-Referer"] = location.href;
     headers["X-Title"] = "Trading Library Manager";
   }
   return headers;
@@ -5161,6 +5169,7 @@ function updateFullscreenAnalyzeButton() {
 
 async function analyzeActiveChart() {
   saveGeminiSettings();
+  state.geminiApiKey = normalizeApiKey(state.geminiApiKey || dom.geminiApiKeyInput?.value || "");
   const item = state.activeFullscreenItem;
   if (!item || (item.mediaKind || inferMediaKind(item)) !== "image") return;
   if (!state.geminiApiKey) {
