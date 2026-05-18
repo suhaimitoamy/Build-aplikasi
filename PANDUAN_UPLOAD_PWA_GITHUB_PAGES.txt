@@ -1,0 +1,47 @@
+PANDUAN UPLOAD PWA GITHUB PAGES
+
+File ZIP ini adalah versi PWA GitHub Pages dari Build-aplikasi / Trading Library Manager.
+
+Isi utama:
+- index.html
+- style.css
+- app.js
+- manifest.json
+- service-worker.js
+- jszip.min.js
+- reset-cache.html
+- icons/
+- .nojekyll
+
+Upload manual via Termux ke repo GitHub Pages:
+
+cd /sdcard/Download
+
+git clone https://github.com/suhaimitoamy/arta.git
+
+cd arta
+
+unzip -o /sdcard/Download/Trading-Library-Manager-GitHub-Pages-PWA.zip -d .
+
+git config --global --add safe.directory /storage/emulated/0/Download/arta
+
+git status
+
+git add .
+
+git commit -m "Deploy Trading Library PWA GitHub Pages"
+
+git push origin main
+
+Aktifkan GitHub Pages:
+Repo > Settings > Pages > Source: Deploy from a branch > Branch: main > Folder: / root > Save
+
+Link contoh:
+https://suhaimitoamy.github.io/arta/
+
+Catatan:
+- Data PWA tersimpan lokal di browser/perangkat lewat IndexedDB/localStorage/Cache Storage.
+- Jangan clear data Safari/Chrome sebelum backup.
+- Jangan ganti link/domain kalau ingin storage tetap terbaca.
+- Untuk iPhone: buka link lewat Safari > Share > Add to Home Screen.
+- API key AI harus diisi di halaman Asisten pada PWA, karena storage PWA berbeda dari APK.
