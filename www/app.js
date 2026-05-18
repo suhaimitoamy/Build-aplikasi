@@ -5,13 +5,13 @@ const SETTINGS_KEY = "tradingLibraryManager.settings.v1";
 const DB_NAME = "tradingLibraryManager.files";
 const DB_VERSION = 1;
 const FILE_STORE = "files";
-const APP_VERSION = "20260518nativeScanThumbFix1";
+const APP_VERSION = "20260518nativeScanProgressFix1";
 const JOURNAL_STORAGE_KEY = "tradingLibraryManager.journals.v1";
 const ASSISTANT_SETTINGS_KEY = "tradingLibraryManager.assistantSettings.v1";
 const INSIGHT_CACHE_KEY = "tradingLibraryManager.insightCache.v1";
 const PIN_KEY = "tradingLibraryManager.pinHash.v1";
 const BACKUP_VERSION = "1.0";
-const SUPPORTED_SCAN_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif", "svg", "mp4", "mkv", "webm", "ogg", "mov", "m4v", "3gp", "avi", "pdf", "doc", "docx", "md", "txt"]);
+const SUPPORTED_SCAN_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif", "svg", "mp4", "mkv", "webm", "ogg", "mov", "m4v", "3gp", "avi", "pdf", "doc", "docx", "md", "txt", "xls", "xlsx", "csv", "ppt", "pptx"]);
 
 const categories = [
   "SMC",
@@ -30,6 +30,8 @@ const categories = [
   "PDF",
   "Markdown",
   "Word",
+  "Excel",
+  "PowerPoint",
   "Jurnal Trading",
   "Psikologi",
   "Backtest"
@@ -43,7 +45,7 @@ const statuses = [
   "Selesai"
 ];
 
-const fileTypes = ["Semua", "Gambar", "Video", "PDF", "Word", "Markdown", "Kode", "Dokumen"];
+const fileTypes = ["Semua", "Gambar", "Video", "PDF", "Word", "Markdown", "Excel", "PowerPoint", "Kode", "Dokumen"];
 
 const dom = {
   categoryPills: document.querySelector("#categoryPills"),
@@ -234,7 +236,8 @@ const state = {
   videoThumbnailBusy: false,
   nativeThumbnailObserver: null,
   nativeThumbnailRequested: new Set(),
-  pendingAiAction: null
+  pendingAiAction: null,
+  scanProgress: null
 };
 
 async function boot() {
@@ -1078,6 +1081,12 @@ function getThumbnailSource(item) {
   return toWebViewSource(item.thumbnailUrl || item.thumbnailUri || item.videoThumb || item.imageThumb || "");
 }
 
+function getNativeWebViewSource(item) {
+  const nativeUri = getNativeUri(item);
+  if (!nativeUri) return "";
+  return isContentUri(nativeUri) ? nativeUri : toWebViewSource(nativeUri);
+}
+
 function isContentUri(value) {
   return String(value || "").startsWith("content://");
 }
@@ -1095,10 +1104,10 @@ function inferMediaKind(item) {
   const source = getMediaSource(item).toLowerCase();
   if (item.type === "Gambar Chart" || item.category === "Gambar Chart") return "image";
   if (item.type === "Video Pembelajaran" || item.category === "Video") return "video";
-  if (item.type === "Dokumen" || ["Dokumen", "PDF", "Markdown", "Word"].includes(item.category)) return "document";
+  if (item.type === "Dokumen" || ["Dokumen", "PDF", "Markdown", "Word", "Excel", "PowerPoint"].includes(item.category)) return "document";
   if (/\.(png|jpe?g|webp|gif|svg)(\?.*)?$/.test(source) || source.startsWith("data:image/")) return "image";
   if (/\.(mp4|mkv|webm|ogg|mov|m4v|3gp|avi)(\?.*)?$/.test(source) || source.startsWith("data:video/")) return "video";
-  if (/\.(md|pdf|docx?)(\?.*)?$/.test(source) || source.startsWith("data:application/pdf") || source.startsWith("data:text/markdown") || source.startsWith("data:text/plain") || source.startsWith("data:application/msword") || source.startsWith("data:application/vnd.openxmlformats-officedocument.wordprocessingml.document")) return "document";
+  if (/\.(md|txt|pdf|docx?|xlsx?|csv|pptx?)(\?.*)?$/.test(source) || source.startsWith("data:application/pdf") || source.startsWith("data:text/markdown") || source.startsWith("data:text/plain") || source.startsWith("data:text/csv") || source.startsWith("data:application/msword") || source.startsWith("data:application/vnd.openxmlformats-officedocument.wordprocessingml.document") || source.startsWith("data:application/vnd.ms-excel") || source.startsWith("data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") || source.startsWith("data:application/vnd.ms-powerpoint") || source.startsWith("data:application/vnd.openxmlformats-officedocument.presentationml.presentation")) return "document";
   return "";
 }
 
@@ -1428,7 +1437,7 @@ function resetForm() {
   dom.typeInput.value = "Materi Trading";
   dom.categoryInput.value = "SMC";
   dom.statusInput.value = "Belum dibaca";
-  dom.fileMeta.textContent = "PNG, JPG, WEBP, MP4, MKV, WEBM, MD, TXT, DOC, DOCX, PDF";
+  dom.fileMeta.textContent = "PNG, JPG, WEBP, MP4, MKV, WEBM, MD, TXT, DOC, DOCX, PDF, XLS, XLSX, CSV, PPT, PPTX";
   dom.compressImageInput.checked = false;
   dom.formMessage.textContent = "";
   dom.deleteCurrentBtn.hidden = true;
@@ -1459,12 +1468,45 @@ function setScanStorageMessage(message) {
   if (dom.scanStorageMessage) dom.scanStorageMessage.textContent = message || "";
 }
 
+function setScanProgress(update = {}) {
+  const previous = state.scanProgress || {
+    found: 0,
+    imported: 0,
+    skipped: 0,
+    duplicates: 0,
+    failed: 0,
+    errors: 0,
+    message: ""
+  };
+  state.scanProgress = { ...previous, ...update };
+  const progress = state.scanProgress;
+  const parts = [
+    progress.message || "Memindai file...",
+    `ditemukan ${progress.found || 0}`,
+    `masuk ${progress.imported || 0}`,
+    `duplikat ${progress.duplicates || 0}`,
+    `dilewati ${progress.skipped || 0}`,
+    `error ${progress.failed || progress.errors || 0}`
+  ];
+  setScanStorageMessage(parts.join(" • "));
+}
+
+function finishScanProgress(summary) {
+  const found = summary.found || 0;
+  const imported = summary.imported || 0;
+  const duplicates = summary.duplicates || 0;
+  const failed = summary.failed || summary.errors || 0;
+  const skipped = summary.skipped || 0;
+  setScanStorageMessage(`Scan selesai: total ditemukan ${found} • berhasil masuk ${imported} • duplikat dilewati ${duplicates} • gagal masuk ${failed}${skipped ? ` • dilewati ${skipped}` : ""}.`);
+}
+
 async function scanStorageFiles() {
   setScanStorageMessage("");
+  state.scanProgress = null;
 
   if (window.TradingStorageScanner && typeof window.TradingStorageScanner.scanFiles === "function") {
     try {
-      setScanStorageMessage("Meminta izin storage HP...");
+      setScanProgress({ message: "Meminta izin Android...", found: 0, imported: 0, skipped: 0, duplicates: 0, failed: 0, errors: 0 });
       window.TradingStorageScanner.scanFiles();
       return;
     } catch (error) {
@@ -1475,7 +1517,7 @@ async function scanStorageFiles() {
   if (window.showDirectoryPicker) {
     try {
       const directory = await window.showDirectoryPicker({ mode: "read" });
-      setScanStorageMessage("Memindai file dari storage...");
+      setScanProgress({ message: "Memindai file...", found: 0, imported: 0, skipped: 0, duplicates: 0, failed: 0, errors: 0 });
       const files = await collectSupportedFilesFromDirectory(directory);
       await importScannedFiles(files);
       return;
@@ -1495,7 +1537,12 @@ async function handleNativeStorageScanResult(event) {
   const message = detail.message || "";
 
   if (status === "permission_required") {
-    setScanStorageMessage(message || "Meminta izin storage HP...");
+    setScanProgress({ message: message || "Meminta izin Android...", found: Number(detail.found || 0) });
+    return;
+  }
+
+  if (status === "progress") {
+    setScanProgress({ message: message || "Memindai file...", found: Number(detail.found || 0), errors: Number(detail.errors || 0) });
     return;
   }
 
@@ -1510,7 +1557,9 @@ async function handleNativeStorageScanResult(event) {
   }
 
   if (status === "success") {
-    await importNativeScannedFiles(Array.isArray(detail.files) ? detail.files : []);
+    const files = Array.isArray(detail.files) ? detail.files : [];
+    setScanProgress({ message: "Memasukkan file ke Library...", found: Number(detail.found || files.length || 0), errors: Number(detail.errors || 0) });
+    await importNativeScannedFiles(files, { found: Number(detail.found || files.length || 0), errors: Number(detail.errors || 0) });
     return;
   }
 
@@ -1547,22 +1596,30 @@ function isSupportedScanFile(file) {
 
 async function importScannedFiles(files) {
   const supported = [...files].filter(isSupportedScanFile);
+  const totalFound = supported.length;
   if (!supported.length) {
     setScanStorageMessage("Tidak ada file yang cocok.");
     return;
   }
-  setScanStorageMessage(`Memasukkan ${supported.length} file ke Library...`);
+  setScanProgress({ message: "Memasukkan file ke Library...", found: totalFound, imported: 0, skipped: 0, duplicates: 0, failed: 0 });
   const now = new Date().toISOString();
   const createdItems = [];
   const createdFileIds = [];
   const batchHashes = new Set();
   let skipped = 0;
+  let duplicates = 0;
+  let failed = 0;
 
   try {
     for (const file of supported) {
       const pending = await makePendingMedia(file, { compressImage: false });
       if (!pending) { skipped += 1; continue; }
-      if (pending.fileHash && (findDuplicateByHash(pending.fileHash) || batchHashes.has(pending.fileHash))) { skipped += 1; continue; }
+      if (pending.fileHash && (findDuplicateByHash(pending.fileHash) || batchHashes.has(pending.fileHash))) {
+        skipped += 1;
+        duplicates += 1;
+        setScanProgress({ found: totalFound, imported: createdItems.length, skipped, duplicates, failed });
+        continue;
+      }
       if (pending.fileHash) batchHashes.add(pending.fileHash);
 
       const id = createId();
@@ -1615,10 +1672,11 @@ async function importScannedFiles(files) {
 
       createdFileIds.push(fileId);
       createdItems.push(item);
+      if (createdItems.length % 25 === 0) setScanProgress({ found: totalFound, imported: createdItems.length, skipped, duplicates, failed });
     }
 
     if (!createdItems.length) {
-      setScanStorageMessage(skipped ? `Semua file sudah pernah masuk atau belum didukung. Duplikat/skip: ${skipped}.` : "Tidak ada file baru.");
+      finishScanProgress({ found: totalFound, imported: 0, duplicates, skipped, failed });
       return;
     }
 
@@ -1627,17 +1685,19 @@ async function importScannedFiles(files) {
     resetGridLimits();
     setView("library", false);
     render();
-    setScanStorageMessage(`Scan selesai: ${createdItems.length} file masuk${skipped ? `, ${skipped} dilewati` : ""}.`);
+    finishScanProgress({ found: totalFound, imported: createdItems.length, duplicates, skipped, failed });
   } catch {
     await Promise.all(createdFileIds.map((fileId) => deleteFileRecord(fileId).catch(() => {})));
-    setScanStorageMessage("Scan gagal. Ruang penyimpanan mungkin penuh atau izin file terputus.");
+    failed += 1;
+    finishScanProgress({ found: totalFound, imported: createdItems.length, duplicates, skipped, failed });
   }
 }
 
-async function importNativeScannedFiles(files) {
+async function importNativeScannedFiles(files, scanStats = {}) {
   const supported = [...files].filter(isSupportedNativeScanFile);
+  const totalFound = Number(scanStats.found || files.length || supported.length || 0);
   if (!supported.length) {
-    setScanStorageMessage("Tidak ada file yang cocok atau izin belum diberikan.");
+    finishScanProgress({ found: totalFound, imported: 0, duplicates: 0, skipped: files.length, failed: Number(scanStats.errors || 0) });
     return;
   }
 
@@ -1645,18 +1705,22 @@ async function importNativeScannedFiles(files) {
   const createdItems = [];
   const batchHashes = new Set();
   let skipped = 0;
+  let duplicates = 0;
+  let failed = Number(scanStats.errors || 0);
 
   for (const nativeFile of supported) {
     const name = nativeFile.name || nativeFile.displayName || "File Storage";
     const uri = nativeFile.uri || nativeFile.contentUri || "";
-    if (!uri) { skipped += 1; continue; }
+    if (!uri) { skipped += 1; failed += 1; continue; }
 
     const kind = getNativeScanKind(nativeFile);
     const documentType = kind === "document" ? getDocumentTypeFromFile({ name, type: nativeFile.mimeType || nativeFile.type || "" }) : "";
-    const fileHash = nativeFile.fileHash || `native:${uri}:${nativeFile.size || 0}:${nativeFile.modifiedAt || nativeFile.dateModified || 0}`;
+    const fileHash = nativeFile.fileHash || nativeFile.dedupKey || buildNativeScanDedupKey(nativeFile);
+    const dedupKey = nativeFile.dedupKey || fileHash;
 
-    if (findDuplicateByHash(fileHash) || batchHashes.has(fileHash) || state.items.some((item) => item.nativeUri === uri || item.externalUri === uri || item.mediaUrl === uri)) {
+    if (findDuplicateByHash(fileHash) || findDuplicateNativeFile(nativeFile, dedupKey) || batchHashes.has(fileHash) || state.items.some((item) => item.nativeUri === uri || item.externalUri === uri || item.mediaUrl === uri)) {
       skipped += 1;
+      duplicates += 1;
       continue;
     }
     batchHashes.add(fileHash);
@@ -1684,6 +1748,9 @@ async function importNativeScannedFiles(files) {
       documentType,
       documentText: "",
       fileHash,
+      dedupKey,
+      nativePath: nativeFile.path || "",
+      nativeModifiedAt: Number(nativeFile.modifiedAt || nativeFile.dateModified || 0),
       source: "storage-scan",
       scannedAt: now,
       favorite: false,
@@ -1695,10 +1762,11 @@ async function importNativeScannedFiles(files) {
     };
 
     createdItems.push(item);
+    if (createdItems.length % 50 === 0) setScanProgress({ message: "Memasukkan file ke Library...", found: totalFound, imported: createdItems.length, skipped, duplicates, failed });
   }
 
   if (!createdItems.length) {
-    setScanStorageMessage(skipped ? `Semua file sudah pernah masuk atau belum didukung. Duplikat/skip: ${skipped}.` : "Tidak ada file baru.");
+    finishScanProgress({ found: totalFound, imported: 0, duplicates, skipped, failed });
     return;
   }
 
@@ -1707,7 +1775,7 @@ async function importNativeScannedFiles(files) {
   resetGridLimits();
   setView("library", false);
   render();
-  setScanStorageMessage(`Scan selesai: ${createdItems.length} file masuk${skipped ? `, ${skipped} dilewati` : ""}.`);
+  finishScanProgress({ found: totalFound, imported: createdItems.length, duplicates, skipped, failed });
 }
 
 function isSupportedNativeScanFile(file) {
@@ -1715,6 +1783,34 @@ function isSupportedNativeScanFile(file) {
   const mime = file?.mimeType || file?.type || "";
   const ext = getFileExtension(name);
   return SUPPORTED_SCAN_EXTENSIONS.has(ext) || mime.startsWith("image/") || mime.startsWith("video/") || isDocumentExtension(ext);
+}
+
+function buildNativeScanDedupKey(file) {
+  const name = String(file?.name || file?.displayName || "").trim().toLowerCase();
+  const size = Number(file?.size || 0);
+  const mime = String(file?.mimeType || file?.type || "").trim().toLowerCase();
+  const modified = Number(file?.modifiedAt || file?.dateModified || file?.lastModified || 0);
+  const path = String(file?.path || file?.relativePath || file?.uri || file?.contentUri || "").trim().toLowerCase();
+  return `native:${name}:${size}:${mime}:${modified}:${path}`;
+}
+
+function findDuplicateNativeFile(nativeFile, dedupKey = "") {
+  const name = String(nativeFile?.name || nativeFile?.displayName || "").trim().toLowerCase();
+  const size = Number(nativeFile?.size || 0);
+  const mime = String(nativeFile?.mimeType || nativeFile?.type || "").trim().toLowerCase();
+  const modified = Number(nativeFile?.modifiedAt || nativeFile?.dateModified || nativeFile?.lastModified || 0);
+  const path = String(nativeFile?.path || nativeFile?.relativePath || "").trim().toLowerCase();
+  return state.items.find((item) => {
+    if (dedupKey && item.dedupKey === dedupKey) return true;
+    const itemName = String(item.mediaName || item.title || "").trim().toLowerCase();
+    const itemMime = String(item.mediaType || "").trim().toLowerCase();
+    const itemPath = String(item.nativePath || "").trim().toLowerCase();
+    const itemModified = Number(item.nativeModifiedAt || item.modifiedAt || 0);
+    const sameBase = itemName === name && Number(item.mediaSize || 0) === size && itemMime === mime;
+    if (!sameBase) return false;
+    if (path && itemPath) return path === itemPath;
+    return modified ? itemModified === modified : true;
+  });
 }
 
 function getNativeScanKind(file) {
@@ -1727,7 +1823,7 @@ function getNativeScanKind(file) {
 }
 
 function isDocumentExtension(ext) {
-  return ["pdf", "doc", "docx", "md", "txt"].includes(ext);
+  return ["pdf", "doc", "docx", "md", "txt", "xls", "xlsx", "csv", "ppt", "pptx"].includes(ext);
 }
 
 function getTypeForNativeScanKind(kind) {
@@ -1754,7 +1850,7 @@ function syncTypeFields() {
     dom.categoryInput.value = "Gambar Chart";
   } else if (type === "Video Pembelajaran") {
     dom.categoryInput.value = "Video";
-  } else if (type === "Dokumen" && !["Dokumen", "PDF", "Markdown", "Word"].includes(dom.categoryInput.value)) {
+  } else if (type === "Dokumen" && !["Dokumen", "PDF", "Markdown", "Word", "Excel", "PowerPoint"].includes(dom.categoryInput.value)) {
     dom.categoryInput.value = "Dokumen";
   }
 }
@@ -1767,7 +1863,7 @@ async function handleFilePick() {
     state.pendingMedia = null;
     state.autoTitleFromFile = false;
     revokePreviewObjectUrl();
-    dom.fileMeta.textContent = "PNG, JPG, WEBP, MP4, MKV, WEBM, MD, TXT, DOC, DOCX, PDF";
+    dom.fileMeta.textContent = "PNG, JPG, WEBP, MP4, MKV, WEBM, MD, TXT, DOC, DOCX, PDF, XLS, XLSX, CSV, PPT, PPTX";
     updatePreviewFromUrl();
     return;
   }
@@ -2643,6 +2739,8 @@ function debounce(callback, wait = 120) {
 async function getFullscreenFeedSource(item) {
   const source = getMediaSource(item);
   if (source) return source;
+  const nativeSource = getNativeWebViewSource(item);
+  if (nativeSource) return nativeSource;
   if (!item.fileId) return "";
   const record = await getFileRecord(item.fileId);
   if (!record?.blob) return "";
@@ -2703,6 +2801,8 @@ function handleFullscreenTouchEnd(event) {
 async function getFullscreenSource(item) {
   const source = getMediaSource(item);
   if (source) return source;
+  const nativeSource = getNativeWebViewSource(item);
+  if (nativeSource) return nativeSource;
   const thumbSource = getThumbnailSource(item);
   if (thumbSource && (item.mediaKind || inferMediaKind(item)) === "image") return thumbSource;
   try {
@@ -2832,6 +2932,8 @@ async function downloadActiveDocument() {
 async function getDocumentOpenSource(item) {
   const source = getMediaSource(item);
   if (source) return source;
+  const nativeSource = getNativeWebViewSource(item);
+  if (nativeSource) return nativeSource;
   try {
     return await loadItemObjectUrl(item, "document");
   } catch {
@@ -2942,16 +3044,21 @@ function isVideoFile(file) {
 function isDocumentItem(item) {
   return item.mediaKind === "document"
     || item.type === "Dokumen"
-    || ["Dokumen", "PDF", "Markdown", "Word"].includes(item.category);
+    || ["Dokumen", "PDF", "Markdown", "Word", "Excel", "PowerPoint"].includes(item.category);
 }
 
 function isDocumentFile(file) {
   const extension = getFileExtension(file.name);
-  return ["md", "txt", "pdf", "doc", "docx"].includes(extension)
+  return ["md", "txt", "pdf", "doc", "docx", "xls", "xlsx", "csv", "ppt", "pptx"].includes(extension)
     || [
       "application/pdf",
       "application/msword",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "text/csv",
+      "application/vnd.ms-powerpoint",
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
       "text/markdown",
       "text/plain"
     ].includes(file.type);
@@ -2962,11 +3069,15 @@ function getDocumentType(item) {
   if (item.category === "PDF") return "PDF";
   if (item.category === "Markdown") return "Markdown";
   if (item.category === "Word") return "Word";
+  if (item.category === "Excel") return "Excel";
+  if (item.category === "PowerPoint") return "PowerPoint";
 
   const source = `${item.mediaName || ""} ${item.mediaUrl || ""} ${item.mediaType || ""}`.toLowerCase();
   if (source.includes("application/pdf") || /\.pdf(?:$|[?#\s])/.test(source)) return "PDF";
   if (source.includes("text/markdown") || source.includes("text/plain") || /\.(md|txt)(?:$|[?#\s])/.test(source)) return "Markdown";
   if (source.includes("application/msword") || source.includes("officedocument.wordprocessingml") || /\.docx?(?:$|[?#\s])/.test(source)) return "Word";
+  if (source.includes("ms-excel") || source.includes("spreadsheetml") || source.includes("text/csv") || /\.(xls|xlsx|csv)(?:$|[?#\s])/.test(source)) return "Excel";
+  if (source.includes("ms-powerpoint") || source.includes("presentationml") || /\.(ppt|pptx)(?:$|[?#\s])/.test(source)) return "PowerPoint";
   return "Dokumen";
 }
 
@@ -2982,11 +3093,13 @@ function getDocumentMark(item) {
   if (documentType === "PDF") return "PDF";
   if (documentType === "Markdown") return "MD";
   if (documentType === "Word") return "DOC";
+  if (documentType === "Excel") return "XLS";
+  if (documentType === "PowerPoint") return "PPT";
   return "DOC";
 }
 
 function getCategoryForDocumentType(documentType) {
-  if (["PDF", "Markdown", "Word"].includes(documentType)) return documentType;
+  if (["PDF", "Markdown", "Word", "Excel", "PowerPoint"].includes(documentType)) return documentType;
   return "Dokumen";
 }
 
@@ -2994,6 +3107,8 @@ function getMimeForDocumentType(documentType) {
   if (documentType === "PDF") return "application/pdf";
   if (documentType === "Markdown") return "text/markdown";
   if (documentType === "Word") return "application/msword";
+  if (documentType === "Excel") return "application/vnd.ms-excel";
+  if (documentType === "PowerPoint") return "application/vnd.ms-powerpoint";
   return "application/octet-stream";
 }
 
@@ -3017,13 +3132,19 @@ function getMimeForFileExtension(name = "") {
     webp: "image/webp",
     "3gp": "video/3gpp",
     doc: "application/msword",
-    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    xls: "application/vnd.ms-excel",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    csv: "text/csv",
+    ppt: "application/vnd.ms-powerpoint",
+    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
   };
   return mimeByExtension[getFileExtension(name)] || "";
 }
 
 function getFallbackDocumentName(item) {
-  const extension = getDocumentType(item) === "Markdown" ? "md" : getDocumentType(item).toLowerCase();
+  const type = getDocumentType(item);
+  const extension = type === "Markdown" ? "md" : type === "PowerPoint" ? "ppt" : type === "Excel" ? "xls" : type.toLowerCase();
   return `${(item.title || "dokumen").replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase() || "dokumen"}.${extension}`;
 }
 
@@ -3373,7 +3494,7 @@ function getItemFileType(item) {
   if (mediaKind === "video") return "Video";
   if (isDocumentItem(item)) {
     const type = getDocumentType(item);
-    if (["PDF", "Word", "Markdown"].includes(type)) return type;
+    if (["PDF", "Word", "Markdown", "Excel", "PowerPoint"].includes(type)) return type;
     return "Dokumen";
   }
   return "Dokumen";
@@ -4562,7 +4683,7 @@ async function getRelevantLocalContext(query) {
     const metaText = [item.title, item.type, item.category, item.status, item.collection, item.notes, item.code, item.mediaName, item.documentType, item.source === "storage-scan" ? "hasil scan storage HP" : "", ...(item.tags || [])].join(" ");
     let text = metaText;
     let score = scoreText(metaText, terms);
-    if (isDocumentItem(item) && getDocumentType(item) !== "PDF") {
+    if (score > 0 && isDocumentItem(item) && item.source !== "storage-scan" && getDocumentType(item) !== "PDF") {
       try {
         const docText = await readItemText(item);
         if (docText) {
@@ -4677,7 +4798,7 @@ ${matches.map((item, index) => `${index + 1}. ${item.title} • ${getItemFileTyp
     return { text };
   }
 
-  if (/\b(hapus|delete|remove)\b/i.test(normalized) && /(file|materi|video|gambar|dokumen|pdf|word|markdown|scan|semua)/i.test(normalized)) {
+  if (/\b(hapus|delete|remove)\b/i.test(normalized) && /(file|materi|video|gambar|dokumen|pdf|word|markdown|excel|xls|csv|powerpoint|ppt|scan|semua)/i.test(normalized)) {
     const matches = findItemsForAiCommand(question);
     showAiActionConfirmation({
       type: "delete",
@@ -4731,7 +4852,9 @@ function findItemsForAiCommand(command) {
   if (/\b(pdf)\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "PDF");
   if (/\b(word|doc|docx)\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "Word");
   if (/\b(markdown|md|txt)\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "Markdown");
-  if (/\b(dokumen|document)\b/i.test(normalized)) items = items.filter((item) => ["Dokumen", "PDF", "Word", "Markdown"].includes(getItemFileType(item)));
+  if (/\b(excel|xls|xlsx|csv)\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "Excel");
+  if (/\b(powerpoint|ppt|pptx)\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "PowerPoint");
+  if (/\b(dokumen|document)\b/i.test(normalized)) items = items.filter((item) => ["Dokumen", "PDF", "Word", "Markdown", "Excel", "PowerPoint"].includes(getItemFileType(item)));
   if (/\bbelum (dibaca|ditonton|selesai)\b/i.test(normalized)) items = items.filter((item) => item.status === "Belum dibaca");
   if (/\b(selesai|sudah dibaca|sudah ditonton)\b/i.test(normalized) && !/ubah|ganti|set/i.test(normalized)) items = items.filter((item) => item.status === "Selesai");
 
@@ -4747,7 +4870,7 @@ function findItemsForAiCommand(command) {
 
 function extractItemSearchKeywords(command) {
   const normalized = command.toLowerCase()
-    .replace(/\b(hapus|delete|remove|arsip|arsipkan|ubah|ganti|set|status|menjadi|ke|cari|tampilkan|lihat|daftar|file|materi|video|gambar|dokumen|pdf|word|doc|docx|markdown|md|txt|hasil|scan|storage|hp|semua|yang|belum|pernah|dibaca|ditonton|selesai|sudah|dari|aplikasi)\b/g, " ")
+    .replace(/\b(hapus|delete|remove|arsip|arsipkan|ubah|ganti|set|status|menjadi|ke|cari|tampilkan|lihat|daftar|file|materi|video|gambar|dokumen|pdf|word|doc|docx|markdown|md|txt|excel|xls|xlsx|csv|powerpoint|ppt|pptx|hasil|scan|storage|hp|semua|yang|belum|pernah|dibaca|ditonton|selesai|sudah|dari|aplikasi)\b/g, " ")
     .replace(/[^a-z0-9_.-]+/g, " ")
     .trim();
   return normalized.split(/\s+/).filter((word) => word.length > 2).slice(0, 8);

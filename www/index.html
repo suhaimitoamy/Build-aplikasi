@@ -128,7 +128,7 @@
             </div>
             <div class="section-actions">
               <button class="primary-button" id="scanStorageBtn" type="button">Scan File HP</button>
-              <input id="storageScanInput" type="file" multiple accept="image/*,video/*,.mp4,.mkv,.webm,.ogg,.mov,.m4v,.3gp,.avi,.md,.txt,.doc,.docx,.pdf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,text/plain" hidden>
+              <input id="storageScanInput" type="file" multiple accept="image/*,video/*,.mp4,.mkv,.webm,.ogg,.mov,.m4v,.3gp,.avi,.md,.txt,.doc,.docx,.pdf,.xls,.xlsx,.csv,.ppt,.pptx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/markdown,text/plain" hidden>
               <button class="ghost-button" id="selectModeBtn" type="button">Pilih</button>
               <button class="ghost-button danger" id="bulkDeleteBtn" type="button" hidden>Hapus Terpilih</button>
               <button class="ghost-button" id="cancelSelectBtn" type="button" hidden>Batal</button>
@@ -253,9 +253,9 @@
               <input id="journalEmotionInput" type="text" maxlength="120" placeholder="Tenang, takut, serakah, ragu, percaya diri">
             </label>
             <label class="file-drop" for="journalFileInput">
-              <input id="journalFileInput" type="file" multiple accept="image/*,video/*,.mp4,.mkv,.webm,.ogg,.mov,.m4v,.3gp,.avi,.md,.txt,.doc,.docx,.pdf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,text/plain">
+              <input id="journalFileInput" type="file" multiple accept="image/*,video/*,.mp4,.mkv,.webm,.ogg,.mov,.m4v,.3gp,.avi,.md,.txt,.doc,.docx,.pdf,.xls,.xlsx,.csv,.ppt,.pptx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/markdown,text/plain">
               <span class="file-drop-title">Tambah lampiran jurnal</span>
-              <span class="file-drop-meta" id="journalFileMeta">Gambar chart, video, PDF, Markdown, TXT, Word</span>
+              <span class="file-drop-meta" id="journalFileMeta">Gambar chart, video, PDF, Markdown, TXT, Word, Excel, PowerPoint</span>
             </label>
             <p class="form-message" id="journalMessage" role="status"></p>
             <div class="form-actions">
@@ -469,9 +469,9 @@
         </label>
 
         <label class="file-drop" for="fileInput">
-          <input id="fileInput" type="file" multiple accept="image/*,video/*,.mp4,.mkv,.webm,.ogg,.mov,.m4v,.3gp,.avi,.md,.txt,.doc,.docx,.pdf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,text/plain">
+          <input id="fileInput" type="file" multiple accept="image/*,video/*,.mp4,.mkv,.webm,.ogg,.mov,.m4v,.3gp,.avi,.md,.txt,.doc,.docx,.pdf,.xls,.xlsx,.csv,.ppt,.pptx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/markdown,text/plain">
           <span class="file-drop-title">Pilih gambar, video, atau dokumen</span>
-          <span class="file-drop-meta" id="fileMeta">PNG, JPG, WEBP, MP4, MKV, WEBM, MD, TXT, DOC, DOCX, PDF</span>
+          <span class="file-drop-meta" id="fileMeta">PNG, JPG, WEBP, MP4, MKV, WEBM, MD, TXT, DOC, DOCX, PDF, XLS, XLSX, CSV, PPT, PPTX</span>
         </label>
 
         <label class="toggle-field form-toggle">

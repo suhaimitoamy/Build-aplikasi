@@ -3,13 +3,16 @@ package com.trading.library.manager;
 import android.Manifest;
 import android.content.ContentResolver;
 import android.content.ContentUris;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.provider.MediaStore;
+import android.provider.Settings;
 import android.util.Size;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
@@ -32,12 +35,12 @@ import java.util.Set;
 
 public class MainActivity extends BridgeActivity {
     private static final int STORAGE_SCAN_PERMISSION_REQUEST = 7718;
-    private static final int MAX_SCAN_RESULTS = 2500;
+    private static final int MAX_SCAN_RESULTS = 5000;
 
     private boolean scanAfterPermission = false;
 
     private static final Set<String> SUPPORTED_DOCUMENT_EXTENSIONS = new HashSet<>(Arrays.asList(
-        "pdf", "doc", "docx", "md", "txt"
+        "pdf", "doc", "docx", "md", "txt", "xls", "xlsx", "csv", "ppt", "pptx"
     ));
 
     @Override
@@ -71,6 +74,9 @@ public class MainActivity extends BridgeActivity {
     }
 
     private boolean hasAnyStoragePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return Environment.isExternalStorageManager();
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             return ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
                 || ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED;
@@ -82,6 +88,18 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void requestStoragePermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+            dispatchStorageEvent("permission_required", "Aktifkan izin Kelola semua file agar PDF, Word, Excel, PowerPoint, gambar, dan video bisa discan.", new JSONArray());
+            try {
+                Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                intent.setData(Uri.parse("package:" + getPackageName()));
+                startActivity(intent);
+            } catch (Exception ignored) {
+                Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                startActivity(intent);
+            }
+            return;
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             ActivityCompat.requestPermissions(this, new String[] {
                 Manifest.permission.READ_MEDIA_IMAGES,
@@ -107,6 +125,18 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        if (scanAfterPermission && hasAnyStoragePermission()) {
+            scanAfterPermission = false;
+            startStorageScan();
+        } else if (scanAfterPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            scanAfterPermission = false;
+            dispatchStorageEvent("denied", "Izin Kelola semua file belum aktif. Scan File HP dibatalkan.", new JSONArray());
+        }
+    }
+
+    @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode != STORAGE_SCAN_PERMISSION_REQUEST) return;
@@ -129,7 +159,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void startStorageScan() {
-        dispatchStorageEvent("permission_required", "Izin diterima. Memindai file HP...", new JSONArray());
+        dispatchStorageProgress("progress", "Memindai file...", new JSONArray(), 0, 0);
         new Thread(() -> {
             JSONArray files = new JSONArray();
             HashSet<String> seen = new HashSet<>();
@@ -137,7 +167,7 @@ public class MainActivity extends BridgeActivity {
                 scanMediaCollection(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "image", files, seen);
                 scanMediaCollection(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, "video", files, seen);
                 scanDocumentCollection(files, seen);
-                dispatchStorageEvent("success", "Scan selesai.", files);
+                dispatchStorageProgress("success", "Scan selesai.", files, files.length(), 0);
             } catch (Exception error) {
                 dispatchStorageEvent("error", "Scan storage gagal: " + error.getMessage(), files);
             }
@@ -162,6 +192,9 @@ public class MainActivity extends BridgeActivity {
             if (cursor == null) return;
             while (cursor.moveToNext() && files.length() < MAX_SCAN_RESULTS) {
                 addCursorRow(collectionUri, cursor, kind, files, seen);
+                if (files.length() % 100 == 0) {
+                    dispatchStorageProgress("progress", "Memindai file...", new JSONArray(), files.length(), 0);
+                }
             }
         } catch (SecurityException ignored) {
         }
@@ -171,13 +204,22 @@ public class MainActivity extends BridgeActivity {
         if (files.length() >= MAX_SCAN_RESULTS) return;
 
         Uri collectionUri = MediaStore.Files.getContentUri("external");
-        String[] projection = new String[] {
-            MediaStore.MediaColumns._ID,
-            MediaStore.MediaColumns.DISPLAY_NAME,
-            MediaStore.MediaColumns.MIME_TYPE,
-            MediaStore.MediaColumns.SIZE,
-            MediaStore.MediaColumns.DATE_MODIFIED
-        };
+        String[] projection = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+            ? new String[] {
+                MediaStore.MediaColumns._ID,
+                MediaStore.MediaColumns.DISPLAY_NAME,
+                MediaStore.MediaColumns.MIME_TYPE,
+                MediaStore.MediaColumns.SIZE,
+                MediaStore.MediaColumns.DATE_MODIFIED,
+                MediaStore.MediaColumns.RELATIVE_PATH
+            }
+            : new String[] {
+                MediaStore.MediaColumns._ID,
+                MediaStore.MediaColumns.DISPLAY_NAME,
+                MediaStore.MediaColumns.MIME_TYPE,
+                MediaStore.MediaColumns.SIZE,
+                MediaStore.MediaColumns.DATE_MODIFIED
+            };
         String sortOrder = MediaStore.MediaColumns.DATE_MODIFIED + " DESC";
 
         try (Cursor cursor = getContentResolver().query(collectionUri, projection, null, null, sortOrder)) {
@@ -187,6 +229,9 @@ public class MainActivity extends BridgeActivity {
                 String extension = getExtension(name);
                 if (!SUPPORTED_DOCUMENT_EXTENSIONS.contains(extension)) continue;
                 addCursorRow(collectionUri, cursor, "document", files, seen);
+                if (files.length() % 100 == 0) {
+                    dispatchStorageProgress("progress", "Memindai file...", new JSONArray(), files.length(), 0);
+                }
             }
         } catch (SecurityException ignored) {
         }
@@ -205,6 +250,8 @@ public class MainActivity extends BridgeActivity {
             String mimeType = getCursorString(cursor, MediaStore.MediaColumns.MIME_TYPE);
             long size = getCursorLong(cursor, MediaStore.MediaColumns.SIZE);
             long modified = getCursorLong(cursor, MediaStore.MediaColumns.DATE_MODIFIED);
+            String relativePath = getCursorString(cursor, MediaStore.MediaColumns.RELATIVE_PATH);
+            String dedupKey = buildDedupKey(name, size, mimeType, modified, relativePath);
 
             JSONObject file = new JSONObject();
             file.put("uri", uriText);
@@ -212,8 +259,10 @@ public class MainActivity extends BridgeActivity {
             file.put("mimeType", mimeType == null ? "" : mimeType);
             file.put("size", size);
             file.put("modifiedAt", modified);
+            file.put("path", relativePath == null ? "" : relativePath);
             file.put("kind", kind);
-            file.put("fileHash", "native:" + uriText + ":" + size + ":" + modified);
+            file.put("fileHash", dedupKey);
+            file.put("dedupKey", dedupKey);
             files.put(file);
             seen.add(uriText);
         } catch (Exception ignored) {
@@ -228,14 +277,16 @@ public class MainActivity extends BridgeActivity {
             Uri uri = Uri.parse(uriText);
             Bitmap bitmap = null;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                bitmap = getContentResolver().loadThumbnail(uri, new Size(360, 360), null);
+                int side = "video".equals(kind) ? 420 : 720;
+                bitmap = getContentResolver().loadThumbnail(uri, new Size(side, side), null);
             }
             if (bitmap != null) {
                 File dir = new File(getCacheDir(), "trading_scan_thumbs");
                 if (!dir.exists()) dir.mkdirs();
                 File out = new File(dir, Integer.toHexString((itemId + uriText).hashCode()) + ".jpg");
                 try (FileOutputStream stream = new FileOutputStream(out)) {
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 72, stream);
+                    int quality = "video".equals(kind) ? 72 : 88;
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream);
                 }
                 thumbnailUri = Uri.fromFile(out).toString();
             }
@@ -264,12 +315,25 @@ public class MainActivity extends BridgeActivity {
         return name.substring(dot + 1).toLowerCase(Locale.US);
     }
 
+    private String buildDedupKey(String name, long size, String mimeType, long modified, String path) {
+        String safeName = name == null ? "" : name.trim().toLowerCase(Locale.US);
+        String safeMime = mimeType == null ? "" : mimeType.trim().toLowerCase(Locale.US);
+        String safePath = path == null ? "" : path.trim().toLowerCase(Locale.US);
+        return "native:" + safeName + ":" + size + ":" + safeMime + ":" + modified + ":" + safePath;
+    }
+
     private void dispatchStorageEvent(String status, String message, JSONArray files) {
+        dispatchStorageProgress(status, message, files, files == null ? 0 : files.length(), 0);
+    }
+
+    private void dispatchStorageProgress(String status, String message, JSONArray files, int found, int errors) {
         try {
             JSONObject detail = new JSONObject();
             detail.put("status", status);
             detail.put("message", message == null ? "" : message);
             detail.put("files", files == null ? new JSONArray() : files);
+            detail.put("found", found);
+            detail.put("errors", errors);
             String script = "window.dispatchEvent(new CustomEvent('trading-storage-scan-result',{detail:" + detail.toString() + "}));";
             runOnUiThread(() -> {
                 try {
