@@ -5,10 +5,12 @@ import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.util.Size;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 
@@ -21,6 +23,8 @@ import com.getcapacitor.BridgeActivity;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Locale;
@@ -58,6 +62,11 @@ public class MainActivity extends BridgeActivity {
                     requestStoragePermissions();
                 }
             });
+        }
+
+        @JavascriptInterface
+        public void requestThumbnail(String itemId, String uriText, String kind) {
+            new Thread(() -> createAndDispatchThumbnail(itemId, uriText, kind)).start();
         }
     }
 
@@ -211,6 +220,31 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    private void createAndDispatchThumbnail(String itemId, String uriText, String kind) {
+        String thumbnailUri = "";
+        String message = "";
+        try {
+            if (itemId == null || itemId.trim().isEmpty() || uriText == null || uriText.trim().isEmpty()) return;
+            Uri uri = Uri.parse(uriText);
+            Bitmap bitmap = null;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                bitmap = getContentResolver().loadThumbnail(uri, new Size(360, 360), null);
+            }
+            if (bitmap != null) {
+                File dir = new File(getCacheDir(), "trading_scan_thumbs");
+                if (!dir.exists()) dir.mkdirs();
+                File out = new File(dir, Integer.toHexString((itemId + uriText).hashCode()) + ".jpg");
+                try (FileOutputStream stream = new FileOutputStream(out)) {
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 72, stream);
+                }
+                thumbnailUri = Uri.fromFile(out).toString();
+            }
+        } catch (Exception error) {
+            message = error.getMessage() == null ? "Thumbnail gagal dibuat." : error.getMessage();
+        }
+        dispatchThumbnailEvent(itemId, thumbnailUri, message);
+    }
+
     private String getCursorString(Cursor cursor, String columnName) {
         int index = cursor.getColumnIndex(columnName);
         if (index < 0 || cursor.isNull(index)) return "";
@@ -237,6 +271,23 @@ public class MainActivity extends BridgeActivity {
             detail.put("message", message == null ? "" : message);
             detail.put("files", files == null ? new JSONArray() : files);
             String script = "window.dispatchEvent(new CustomEvent('trading-storage-scan-result',{detail:" + detail.toString() + "}));";
+            runOnUiThread(() -> {
+                try {
+                    getBridge().getWebView().evaluateJavascript(script, null);
+                } catch (Exception ignored) {
+                }
+            });
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void dispatchThumbnailEvent(String itemId, String thumbnailUri, String message) {
+        try {
+            JSONObject detail = new JSONObject();
+            detail.put("itemId", itemId == null ? "" : itemId);
+            detail.put("thumbnailUri", thumbnailUri == null ? "" : thumbnailUri);
+            detail.put("message", message == null ? "" : message);
+            String script = "window.dispatchEvent(new CustomEvent('trading-storage-thumbnail-result',{detail:" + detail.toString() + "}));";
             runOnUiThread(() -> {
                 try {
                     getBridge().getWebView().evaluateJavascript(script, null);

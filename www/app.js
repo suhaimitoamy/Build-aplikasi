@@ -5,7 +5,7 @@ const SETTINGS_KEY = "tradingLibraryManager.settings.v1";
 const DB_NAME = "tradingLibraryManager.files";
 const DB_VERSION = 1;
 const FILE_STORE = "files";
-const APP_VERSION = "20260518nativeScan1";
+const APP_VERSION = "20260518nativeScanThumbFix1";
 const JOURNAL_STORAGE_KEY = "tradingLibraryManager.journals.v1";
 const ASSISTANT_SETTINGS_KEY = "tradingLibraryManager.assistantSettings.v1";
 const INSIGHT_CACHE_KEY = "tradingLibraryManager.insightCache.v1";
@@ -232,6 +232,8 @@ const state = {
   videoThumbnailObserver: null,
   videoThumbnailQueue: new Set(),
   videoThumbnailBusy: false,
+  nativeThumbnailObserver: null,
+  nativeThumbnailRequested: new Set(),
   pendingAiAction: null
 };
 
@@ -363,6 +365,7 @@ function bindEvents() {
   dom.scanStorageBtn?.addEventListener("click", scanStorageFiles);
   dom.storageScanInput?.addEventListener("change", handleStorageScanInput);
   window.addEventListener("trading-storage-scan-result", handleNativeStorageScanResult);
+  window.addEventListener("trading-storage-thumbnail-result", handleNativeThumbnailResult);
 
   dom.navButtons.forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.view));
@@ -957,8 +960,11 @@ function renderMediaSlot(slot, item) {
   }
 
   if (mediaKind === "image") {
+    const thumbSource = getThumbnailSource(item);
     if (source) {
       renderImageSlot(slot, item, source);
+    } else if (thumbSource || getNativeUri(item)) {
+      renderNativeThumbnailSlot(slot, item, thumbSource, "Gambar");
     } else if (item.fileId) {
       renderLoadingSlot(slot, item);
       loadItemObjectUrl(item).then((url) => {
@@ -988,7 +994,29 @@ function renderImageSlot(slot, item, source) {
   img.alt = item.title;
   img.src = source;
   img.addEventListener("click", () => showFullscreenViewer(item));
+  img.addEventListener("error", () => {
+    const thumbSource = getThumbnailSource(item);
+    if (thumbSource && img.src !== thumbSource) img.src = thumbSource;
+    else renderNativeThumbnailSlot(slot, item, thumbSource, "Gambar");
+  }, { once: true });
   slot.append(img, makeMediaLabel("Gambar"));
+}
+
+function renderNativeThumbnailSlot(slot, item, thumbSource = "", labelText = "Gambar") {
+  slot.replaceChildren();
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `media-fallback native-thumb-slot ${labelText === "Video" ? "video-fallback" : ""}`.trim();
+  button.dataset.nativeThumbItemId = item.id;
+  button.textContent = labelText === "Video" ? "▶" : getFallbackMark(item);
+  if (thumbSource) {
+    button.classList.add("has-native-thumb");
+    button.style.backgroundImage = `linear-gradient(rgba(0,0,0,.10), rgba(0,0,0,.38)), url("${thumbSource}")`;
+  } else {
+    queueNativeThumbnail(item, button);
+  }
+  button.addEventListener("click", () => showFullscreenViewer(item));
+  slot.append(button, makeMediaLabel(labelText));
 }
 
 function renderVideoSlot(slot, item, source) {
@@ -998,9 +1026,13 @@ function renderVideoSlot(slot, item, source) {
   button.className = "media-fallback video-fallback";
   button.innerHTML = `<span class="video-play-mark" aria-hidden="true">▶</span>`;
   button.setAttribute("aria-label", `Buka video ${item.title || ""}`.trim());
-  if (item.videoThumb) {
-    button.classList.add("has-video-thumb");
-    button.style.backgroundImage = `linear-gradient(rgba(0,0,0,.12), rgba(0,0,0,.42)), url("${item.videoThumb}")`;
+  button.dataset.nativeThumbItemId = item.id;
+  const thumbSource = getThumbnailSource(item);
+  if (thumbSource) {
+    button.classList.add("has-video-thumb", "has-native-thumb");
+    button.style.backgroundImage = `linear-gradient(rgba(0,0,0,.12), rgba(0,0,0,.42)), url("${thumbSource}")`;
+  } else if (getNativeUri(item)) {
+    queueNativeThumbnail(item, button);
   } else {
     queueVideoThumbnail(item, button, source);
   }
@@ -1032,7 +1064,31 @@ function getFallbackMark(item) {
 }
 
 function getMediaSource(item) {
-  return item.objectUrl || item.externalUri || item.mediaUrl || "";
+  return toWebViewSource(item.objectUrl || item.mediaUrl || "");
+}
+
+function getNativeUri(item) {
+  const direct = item.nativeUri || item.externalUri || "";
+  if (direct) return direct;
+  const mediaUrl = String(item.mediaUrl || "");
+  return isContentUri(mediaUrl) ? mediaUrl : "";
+}
+
+function getThumbnailSource(item) {
+  return toWebViewSource(item.thumbnailUrl || item.thumbnailUri || item.videoThumb || item.imageThumb || "");
+}
+
+function isContentUri(value) {
+  return String(value || "").startsWith("content://");
+}
+
+function toWebViewSource(source) {
+  const value = String(source || "");
+  if (!value || isContentUri(value)) return "";
+  if (value.startsWith("file://") && window.Capacitor?.convertFileSrc) {
+    try { return window.Capacitor.convertFileSrc(value); } catch {}
+  }
+  return value;
 }
 
 function inferMediaKind(item) {
@@ -1599,7 +1655,7 @@ async function importNativeScannedFiles(files) {
     const documentType = kind === "document" ? getDocumentTypeFromFile({ name, type: nativeFile.mimeType || nativeFile.type || "" }) : "";
     const fileHash = nativeFile.fileHash || `native:${uri}:${nativeFile.size || 0}:${nativeFile.modifiedAt || nativeFile.dateModified || 0}`;
 
-    if (findDuplicateByHash(fileHash) || batchHashes.has(fileHash) || state.items.some((item) => item.externalUri === uri || item.mediaUrl === uri)) {
+    if (findDuplicateByHash(fileHash) || batchHashes.has(fileHash) || state.items.some((item) => item.nativeUri === uri || item.externalUri === uri || item.mediaUrl === uri)) {
       skipped += 1;
       continue;
     }
@@ -1616,8 +1672,10 @@ async function importNativeScannedFiles(files) {
       notes: "File masuk dari scan storage HP dengan izin pengguna.",
       checklist: [],
       code: "",
-      mediaUrl: uri,
+      mediaUrl: "",
+      nativeUri: uri,
       externalUri: uri,
+      thumbnailUrl: nativeFile.thumbnailUri || nativeFile.thumbnailUrl || "",
       fileId: "",
       mediaKind: kind,
       mediaName: name,
@@ -2267,6 +2325,68 @@ function setupReadableCompletionTracking(element, item) {
   window.setTimeout(completeIfRead, 600);
 }
 
+function queueNativeThumbnail(item, element) {
+  const nativeUri = getNativeUri(item);
+  if (!nativeUri || !element) return;
+  const existing = getThumbnailSource(item);
+  element.dataset.nativeThumbItemId = item.id;
+  if (existing) {
+    applyNativeThumbnailToDom(item.id, existing);
+    return;
+  }
+  const observer = getNativeThumbnailObserver();
+  observer.observe(element);
+}
+
+function getNativeThumbnailObserver() {
+  if (state.nativeThumbnailObserver) return state.nativeThumbnailObserver;
+  state.nativeThumbnailObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      const element = entry.target;
+      state.nativeThumbnailObserver.unobserve(element);
+      const item = state.items.find((entryItem) => entryItem.id === element.dataset.nativeThumbItemId);
+      requestNativeThumbnail(item);
+    });
+  }, { rootMargin: "180px" });
+  return state.nativeThumbnailObserver;
+}
+
+function requestNativeThumbnail(item) {
+  const nativeUri = getNativeUri(item);
+  if (!item?.id || !nativeUri || state.nativeThumbnailRequested.has(item.id)) return;
+  if (!window.TradingStorageScanner || typeof window.TradingStorageScanner.requestThumbnail !== "function") return;
+  state.nativeThumbnailRequested.add(item.id);
+  try {
+    window.TradingStorageScanner.requestThumbnail(item.id, nativeUri, item.mediaKind || inferMediaKind(item) || "");
+  } catch {
+    state.nativeThumbnailRequested.delete(item.id);
+  }
+}
+
+function handleNativeThumbnailResult(event) {
+  const detail = event?.detail || {};
+  const itemId = detail.itemId || detail.id || "";
+  if (!itemId) return;
+  state.nativeThumbnailRequested.delete(itemId);
+  const thumb = detail.thumbnailUri || detail.thumbnailUrl || "";
+  if (!thumb) return;
+  const index = state.items.findIndex((item) => item.id === itemId);
+  if (index >= 0) {
+    state.items[index] = { ...state.items[index], thumbnailUrl: thumb, updatedAt: state.items[index].updatedAt || new Date().toISOString() };
+    saveItems();
+  }
+  applyNativeThumbnailToDom(itemId, toWebViewSource(thumb));
+}
+
+function applyNativeThumbnailToDom(itemId, thumb) {
+  if (!itemId || !thumb) return;
+  document.querySelectorAll(`[data-native-thumb-item-id="${CSS.escape(itemId)}"]`).forEach((element) => {
+    element.classList.add("has-native-thumb", "has-video-thumb");
+    element.style.backgroundImage = `linear-gradient(rgba(0,0,0,.10), rgba(0,0,0,.38)), url("${thumb}")`;
+  });
+}
+
 function queueVideoThumbnail(item, button, source = "") {
   if (!item?.id || !button) return;
   const observer = getVideoThumbnailObserver();
@@ -2583,6 +2703,8 @@ function handleFullscreenTouchEnd(event) {
 async function getFullscreenSource(item) {
   const source = getMediaSource(item);
   if (source) return source;
+  const thumbSource = getThumbnailSource(item);
+  if (thumbSource && (item.mediaKind || inferMediaKind(item)) === "image") return thumbSource;
   try {
     return await loadItemObjectUrl(item, "fullscreen");
   } catch {

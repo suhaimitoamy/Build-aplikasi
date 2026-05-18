@@ -1,4 +1,4 @@
-const CACHE_VERSION = "20260518nativeScan1";
+const CACHE_VERSION = "20260518nativeScanThumbFix1";
 const CACHE_NAME = `trading-library-manager-${CACHE_VERSION}`;
 
 const APP_SHELL = [
