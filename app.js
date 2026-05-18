@@ -5,7 +5,7 @@ const SETTINGS_KEY = "tradingLibraryManager.settings.v1";
 const DB_NAME = "tradingLibraryManager.files";
 const DB_VERSION = 1;
 const FILE_STORE = "files";
-const APP_VERSION = "20260518scanai1";
+const APP_VERSION = "20260518nativeScan1";
 const JOURNAL_STORAGE_KEY = "tradingLibraryManager.journals.v1";
 const ASSISTANT_SETTINGS_KEY = "tradingLibraryManager.assistantSettings.v1";
 const INSIGHT_CACHE_KEY = "tradingLibraryManager.insightCache.v1";
@@ -362,6 +362,7 @@ function bindEvents() {
   dom.bulkDeleteBtn.addEventListener("click", deleteSelectedItems);
   dom.scanStorageBtn?.addEventListener("click", scanStorageFiles);
   dom.storageScanInput?.addEventListener("change", handleStorageScanInput);
+  window.addEventListener("trading-storage-scan-result", handleNativeStorageScanResult);
 
   dom.navButtons.forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.view));
@@ -1031,7 +1032,7 @@ function getFallbackMark(item) {
 }
 
 function getMediaSource(item) {
-  return item.objectUrl || item.mediaUrl || "";
+  return item.objectUrl || item.externalUri || item.mediaUrl || "";
 }
 
 function inferMediaKind(item) {
@@ -1404,6 +1405,17 @@ function setScanStorageMessage(message) {
 
 async function scanStorageFiles() {
   setScanStorageMessage("");
+
+  if (window.TradingStorageScanner && typeof window.TradingStorageScanner.scanFiles === "function") {
+    try {
+      setScanStorageMessage("Meminta izin storage HP...");
+      window.TradingStorageScanner.scanFiles();
+      return;
+    } catch (error) {
+      setScanStorageMessage("Scan native gagal dibuka. Memakai pemilih file manual.");
+    }
+  }
+
   if (window.showDirectoryPicker) {
     try {
       const directory = await window.showDirectoryPicker({ mode: "read" });
@@ -1420,6 +1432,35 @@ async function scanStorageFiles() {
   }
   dom.storageScanInput?.click();
 }
+
+async function handleNativeStorageScanResult(event) {
+  const detail = event?.detail || {};
+  const status = detail.status || "";
+  const message = detail.message || "";
+
+  if (status === "permission_required") {
+    setScanStorageMessage(message || "Meminta izin storage HP...");
+    return;
+  }
+
+  if (status === "denied") {
+    setScanStorageMessage(message || "Izin storage ditolak.");
+    return;
+  }
+
+  if (status === "error") {
+    setScanStorageMessage(message || "Scan storage gagal.");
+    return;
+  }
+
+  if (status === "success") {
+    await importNativeScannedFiles(Array.isArray(detail.files) ? detail.files : []);
+    return;
+  }
+
+  if (message) setScanStorageMessage(message);
+}
+
 
 async function handleStorageScanInput() {
   const files = [...(dom.storageScanInput?.files || [])];
@@ -1536,6 +1577,114 @@ async function importScannedFiles(files) {
     setScanStorageMessage("Scan gagal. Ruang penyimpanan mungkin penuh atau izin file terputus.");
   }
 }
+
+async function importNativeScannedFiles(files) {
+  const supported = [...files].filter(isSupportedNativeScanFile);
+  if (!supported.length) {
+    setScanStorageMessage("Tidak ada file yang cocok atau izin belum diberikan.");
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const createdItems = [];
+  const batchHashes = new Set();
+  let skipped = 0;
+
+  for (const nativeFile of supported) {
+    const name = nativeFile.name || nativeFile.displayName || "File Storage";
+    const uri = nativeFile.uri || nativeFile.contentUri || "";
+    if (!uri) { skipped += 1; continue; }
+
+    const kind = getNativeScanKind(nativeFile);
+    const documentType = kind === "document" ? getDocumentTypeFromFile({ name, type: nativeFile.mimeType || nativeFile.type || "" }) : "";
+    const fileHash = nativeFile.fileHash || `native:${uri}:${nativeFile.size || 0}:${nativeFile.modifiedAt || nativeFile.dateModified || 0}`;
+
+    if (findDuplicateByHash(fileHash) || batchHashes.has(fileHash) || state.items.some((item) => item.externalUri === uri || item.mediaUrl === uri)) {
+      skipped += 1;
+      continue;
+    }
+    batchHashes.add(fileHash);
+
+    const item = {
+      id: createId(),
+      title: fileTitleFromName(name),
+      type: getTypeForNativeScanKind(kind),
+      category: getCategoryForNativeScanKind(kind, documentType),
+      status: "Belum dibaca",
+      collection: "Scan HP",
+      tags: ["Scan HP"],
+      notes: "File masuk dari scan storage HP dengan izin pengguna.",
+      checklist: [],
+      code: "",
+      mediaUrl: uri,
+      externalUri: uri,
+      fileId: "",
+      mediaKind: kind,
+      mediaName: name,
+      mediaType: nativeFile.mimeType || nativeFile.type || getMimeForFileExtension(name) || "",
+      mediaSize: Number(nativeFile.size || 0),
+      documentType,
+      documentText: "",
+      fileHash,
+      source: "storage-scan",
+      scannedAt: now,
+      favorite: false,
+      archived: false,
+      revisionHistory: [],
+      uploadedAt: now,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    createdItems.push(item);
+  }
+
+  if (!createdItems.length) {
+    setScanStorageMessage(skipped ? `Semua file sudah pernah masuk atau belum didukung. Duplikat/skip: ${skipped}.` : "Tidak ada file baru.");
+    return;
+  }
+
+  state.items = [...createdItems, ...state.items];
+  saveItems();
+  resetGridLimits();
+  setView("library", false);
+  render();
+  setScanStorageMessage(`Scan selesai: ${createdItems.length} file masuk${skipped ? `, ${skipped} dilewati` : ""}.`);
+}
+
+function isSupportedNativeScanFile(file) {
+  const name = file?.name || file?.displayName || "";
+  const mime = file?.mimeType || file?.type || "";
+  const ext = getFileExtension(name);
+  return SUPPORTED_SCAN_EXTENSIONS.has(ext) || mime.startsWith("image/") || mime.startsWith("video/") || isDocumentExtension(ext);
+}
+
+function getNativeScanKind(file) {
+  const name = file?.name || file?.displayName || "";
+  const mime = file?.mimeType || file?.type || "";
+  const ext = getFileExtension(name);
+  if (mime.startsWith("image/") || ["png", "jpg", "jpeg", "webp", "gif", "svg"].includes(ext)) return "image";
+  if (mime.startsWith("video/") || ["mp4", "mkv", "webm", "ogg", "mov", "m4v", "3gp", "avi"].includes(ext)) return "video";
+  return "document";
+}
+
+function isDocumentExtension(ext) {
+  return ["pdf", "doc", "docx", "md", "txt"].includes(ext);
+}
+
+function getTypeForNativeScanKind(kind) {
+  if (kind === "image") return "Gambar Chart";
+  if (kind === "video") return "Video Pembelajaran";
+  return "Dokumen";
+}
+
+function getCategoryForNativeScanKind(kind, documentType = "") {
+  if (kind === "image") return "Gambar Chart";
+  if (kind === "video") return "Video";
+  if (kind === "document") return getCategoryForDocumentType(documentType);
+  return "Dokumen";
+}
+
 
 function syncTypeFields() {
   const type = dom.typeInput.value;
