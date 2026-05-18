@@ -5,12 +5,13 @@ const SETTINGS_KEY = "tradingLibraryManager.settings.v1";
 const DB_NAME = "tradingLibraryManager.files";
 const DB_VERSION = 1;
 const FILE_STORE = "files";
-const APP_VERSION = "20260518smoothai1";
+const APP_VERSION = "20260518scanai1";
 const JOURNAL_STORAGE_KEY = "tradingLibraryManager.journals.v1";
 const ASSISTANT_SETTINGS_KEY = "tradingLibraryManager.assistantSettings.v1";
 const INSIGHT_CACHE_KEY = "tradingLibraryManager.insightCache.v1";
 const PIN_KEY = "tradingLibraryManager.pinHash.v1";
 const BACKUP_VERSION = "1.0";
+const SUPPORTED_SCAN_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif", "svg", "mp4", "mkv", "webm", "ogg", "mov", "m4v", "3gp", "avi", "pdf", "doc", "docx", "md", "txt"]);
 
 const categories = [
   "SMC",
@@ -65,6 +66,9 @@ const dom = {
   selectModeBtn: document.querySelector("#selectModeBtn"),
   bulkDeleteBtn: document.querySelector("#bulkDeleteBtn"),
   cancelSelectBtn: document.querySelector("#cancelSelectBtn"),
+  scanStorageBtn: document.querySelector("#scanStorageBtn"),
+  storageScanInput: document.querySelector("#storageScanInput"),
+  scanStorageMessage: document.querySelector("#scanStorageMessage"),
   libraryGrid: document.querySelector("#libraryGrid"),
   codeGrid: document.querySelector("#codeGrid"),
   mediaGrid: document.querySelector("#mediaGrid"),
@@ -124,8 +128,10 @@ const dom = {
   askAiPopupBtn: document.querySelector("#askAiPopupBtn"),
   aiPopupAnswer: document.querySelector("#aiPopupAnswer"),
   saveAiPopupMaterialBtn: document.querySelector("#saveAiPopupMaterialBtn"),
+  clearAiPopupBtn: document.querySelector("#clearAiPopupBtn"),
   insightBox: document.querySelector("#insightBox"),
   fullscreenAnalyzeBtn: document.querySelector("#fullscreenAnalyzeBtn"),
+  fullscreenDeleteBtn: document.querySelector("#fullscreenDeleteBtn"),
   fullscreenAnalysis: document.querySelector("#fullscreenAnalysis"),
   navButtons: document.querySelectorAll(".bottom-nav .nav-button"),
   views: {
@@ -222,7 +228,11 @@ const state = {
   itemsVersion: 0,
   filterCache: { key: "", items: null },
   aiPopupLastQuestion: "",
-  aiPopupLastAnswer: ""
+  aiPopupLastAnswer: "",
+  videoThumbnailObserver: null,
+  videoThumbnailQueue: new Set(),
+  videoThumbnailBusy: false,
+  pendingAiAction: null
 };
 
 async function boot() {
@@ -336,6 +346,7 @@ function bindEvents() {
   dom.closeAiChatBtn?.addEventListener("click", closeAiChatPopup);
   dom.askAiPopupBtn?.addEventListener("click", askAiPopup);
   dom.saveAiPopupMaterialBtn?.addEventListener("click", saveAiPopupAsMaterial);
+  dom.clearAiPopupBtn?.addEventListener("click", clearAiPopupChat);
   dom.aiPopupQuestionInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -343,11 +354,14 @@ function bindEvents() {
     }
   });
   dom.fullscreenAnalyzeBtn?.addEventListener("click", analyzeActiveChart);
+  dom.fullscreenDeleteBtn?.addEventListener("click", deleteActiveFullscreenItem);
   document.addEventListener("click", closeOpenCardMenus);
   document.addEventListener("click", () => closeOpenFilterMenus());
   dom.selectModeBtn.addEventListener("click", enterSelectMode);
   dom.cancelSelectBtn.addEventListener("click", exitSelectMode);
   dom.bulkDeleteBtn.addEventListener("click", deleteSelectedItems);
+  dom.scanStorageBtn?.addEventListener("click", scanStorageFiles);
+  dom.storageScanInput?.addEventListener("change", handleStorageScanInput);
 
   dom.navButtons.forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.view));
@@ -850,17 +864,8 @@ async function deleteSelectedItems() {
   const confirmed = window.confirm(`Hapus ${ids.length} item terpilih?`);
   if (!confirmed) return;
 
-  const selectedItems = state.items.filter((item) => ids.includes(item.id));
-  try {
-    await Promise.all(selectedItems.map((item) => item.fileId ? deleteFileRecord(item.fileId) : Promise.resolve()));
-  } catch {
-    window.alert("Sebagian file belum bisa dihapus dari IndexedDB.");
-    return;
-  }
-
-  state.items = state.items.filter((item) => !ids.includes(item.id));
-  saveItems();
-  exitSelectMode();
+  const deleted = await deleteItemsByIds(ids);
+  if (deleted) exitSelectMode();
 }
 
 function createCard(item) {
@@ -990,8 +995,14 @@ function renderVideoSlot(slot, item, source) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "media-fallback video-fallback";
-  button.textContent = "▶";
+  button.innerHTML = `<span class="video-play-mark" aria-hidden="true">▶</span>`;
   button.setAttribute("aria-label", `Buka video ${item.title || ""}`.trim());
+  if (item.videoThumb) {
+    button.classList.add("has-video-thumb");
+    button.style.backgroundImage = `linear-gradient(rgba(0,0,0,.12), rgba(0,0,0,.42)), url("${item.videoThumb}")`;
+  } else {
+    queueVideoThumbnail(item, button, source);
+  }
   button.addEventListener("click", () => showFullscreenViewer(item));
   slot.append(button, makeMediaLabel("Video"));
 }
@@ -1029,7 +1040,7 @@ function inferMediaKind(item) {
   if (item.type === "Video Pembelajaran" || item.category === "Video") return "video";
   if (item.type === "Dokumen" || ["Dokumen", "PDF", "Markdown", "Word"].includes(item.category)) return "document";
   if (/\.(png|jpe?g|webp|gif|svg)(\?.*)?$/.test(source) || source.startsWith("data:image/")) return "image";
-  if (/\.(mp4|webm|ogg|mov)(\?.*)?$/.test(source) || source.startsWith("data:video/")) return "video";
+  if (/\.(mp4|mkv|webm|ogg|mov|m4v|3gp|avi)(\?.*)?$/.test(source) || source.startsWith("data:video/")) return "video";
   if (/\.(md|pdf|docx?)(\?.*)?$/.test(source) || source.startsWith("data:application/pdf") || source.startsWith("data:text/markdown") || source.startsWith("data:text/plain") || source.startsWith("data:application/msword") || source.startsWith("data:application/vnd.openxmlformats-officedocument.wordprocessingml.document")) return "document";
   return "";
 }
@@ -1360,7 +1371,7 @@ function resetForm() {
   dom.typeInput.value = "Materi Trading";
   dom.categoryInput.value = "SMC";
   dom.statusInput.value = "Belum dibaca";
-  dom.fileMeta.textContent = "PNG, JPG, WEBP, MP4, WEBM, MD, DOC, DOCX, PDF";
+  dom.fileMeta.textContent = "PNG, JPG, WEBP, MP4, MKV, WEBM, MD, TXT, DOC, DOCX, PDF";
   dom.compressImageInput.checked = false;
   dom.formMessage.textContent = "";
   dom.deleteCurrentBtn.hidden = true;
@@ -1387,6 +1398,145 @@ function closeForm() {
   resetForm();
 }
 
+function setScanStorageMessage(message) {
+  if (dom.scanStorageMessage) dom.scanStorageMessage.textContent = message || "";
+}
+
+async function scanStorageFiles() {
+  setScanStorageMessage("");
+  if (window.showDirectoryPicker) {
+    try {
+      const directory = await window.showDirectoryPicker({ mode: "read" });
+      setScanStorageMessage("Memindai file dari storage...");
+      const files = await collectSupportedFilesFromDirectory(directory);
+      await importScannedFiles(files);
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        setScanStorageMessage("Scan dibatalkan.");
+        return;
+      }
+    }
+  }
+  dom.storageScanInput?.click();
+}
+
+async function handleStorageScanInput() {
+  const files = [...(dom.storageScanInput?.files || [])];
+  await importScannedFiles(files);
+  if (dom.storageScanInput) dom.storageScanInput.value = "";
+}
+
+async function collectSupportedFilesFromDirectory(directoryHandle, limit = 800) {
+  const files = [];
+  async function walk(handle) {
+    for await (const entry of handle.values()) {
+      if (files.length >= limit) return;
+      if (entry.kind === "file") {
+        const file = await entry.getFile();
+        if (isSupportedScanFile(file)) files.push(file);
+      } else if (entry.kind === "directory") {
+        await walk(entry);
+      }
+    }
+  }
+  await walk(directoryHandle);
+  return files;
+}
+
+function isSupportedScanFile(file) {
+  return SUPPORTED_SCAN_EXTENSIONS.has(getFileExtension(file.name)) || isImageFile(file) || isVideoFile(file) || isDocumentFile(file);
+}
+
+async function importScannedFiles(files) {
+  const supported = [...files].filter(isSupportedScanFile);
+  if (!supported.length) {
+    setScanStorageMessage("Tidak ada file yang cocok.");
+    return;
+  }
+  setScanStorageMessage(`Memasukkan ${supported.length} file ke Library...`);
+  const now = new Date().toISOString();
+  const createdItems = [];
+  const createdFileIds = [];
+  const batchHashes = new Set();
+  let skipped = 0;
+
+  try {
+    for (const file of supported) {
+      const pending = await makePendingMedia(file, { compressImage: false });
+      if (!pending) { skipped += 1; continue; }
+      if (pending.fileHash && (findDuplicateByHash(pending.fileHash) || batchHashes.has(pending.fileHash))) { skipped += 1; continue; }
+      if (pending.fileHash) batchHashes.add(pending.fileHash);
+
+      const id = createId();
+      const fileId = createId();
+      const documentType = pending.documentType || "";
+      const item = {
+        id,
+        title: fileTitleFromName(pending.name),
+        type: getTypeForPendingMedia(pending),
+        category: getCategoryForPendingMedia(pending),
+        status: "Belum dibaca",
+        collection: "Scan HP",
+        tags: ["Scan HP"],
+        notes: "File masuk dari scan storage HP dengan izin pengguna.",
+        checklist: [],
+        code: "",
+        mediaUrl: "",
+        fileId,
+        mediaKind: pending.kind,
+        mediaName: pending.name,
+        mediaType: pending.type,
+        mediaSize: pending.size,
+        documentType,
+        documentText: pending.documentText || "",
+        fileHash: pending.fileHash || "",
+        source: "storage-scan",
+        scannedAt: now,
+        favorite: false,
+        archived: false,
+        revisionHistory: [],
+        uploadedAt: now,
+        createdAt: now,
+        updatedAt: now
+      };
+
+      await putFileRecord({
+        id: fileId,
+        itemId: id,
+        blob: pending.file,
+        name: pending.name,
+        type: pending.type,
+        size: pending.size,
+        kind: pending.kind,
+        documentType,
+        documentText: pending.documentText || "",
+        fileHash: pending.fileHash || "",
+        source: "storage-scan",
+        uploadedAt: now
+      });
+
+      createdFileIds.push(fileId);
+      createdItems.push(item);
+    }
+
+    if (!createdItems.length) {
+      setScanStorageMessage(skipped ? `Semua file sudah pernah masuk atau belum didukung. Duplikat/skip: ${skipped}.` : "Tidak ada file baru.");
+      return;
+    }
+
+    state.items = [...createdItems, ...state.items];
+    saveItems();
+    resetGridLimits();
+    setView("library", false);
+    render();
+    setScanStorageMessage(`Scan selesai: ${createdItems.length} file masuk${skipped ? `, ${skipped} dilewati` : ""}.`);
+  } catch {
+    await Promise.all(createdFileIds.map((fileId) => deleteFileRecord(fileId).catch(() => {})));
+    setScanStorageMessage("Scan gagal. Ruang penyimpanan mungkin penuh atau izin file terputus.");
+  }
+}
+
 function syncTypeFields() {
   const type = dom.typeInput.value;
   dom.codeField.hidden = type !== "Kode Indikator";
@@ -1410,7 +1560,7 @@ async function handleFilePick() {
     state.pendingMedia = null;
     state.autoTitleFromFile = false;
     revokePreviewObjectUrl();
-    dom.fileMeta.textContent = "PNG, JPG, WEBP, MP4, WEBM, MD, DOC, DOCX, PDF";
+    dom.fileMeta.textContent = "PNG, JPG, WEBP, MP4, MKV, WEBM, MD, TXT, DOC, DOCX, PDF";
     updatePreviewFromUrl();
     return;
   }
@@ -1782,19 +1932,29 @@ async function deleteCurrentItem() {
   if (deleted) closeForm();
 }
 
-async function deleteItem(id) {
+async function deleteItem(id, options = {}) {
   const item = state.items.find((entry) => entry.id === id);
   if (!item) return false;
-  const confirmed = window.confirm(`Hapus "${item.title}"?`);
-  if (!confirmed) return false;
+  if (!options.skipConfirm) {
+    const confirmed = window.confirm(`Hapus "${item.title}" dari aplikasi?`);
+    if (!confirmed) return false;
+  }
+  return deleteItemsByIds([id]);
+}
+
+async function deleteItemsByIds(ids) {
+  const uniqueIds = [...new Set(ids)].filter(Boolean);
+  if (!uniqueIds.length) return false;
+  const selectedItems = state.items.filter((item) => uniqueIds.includes(item.id));
   try {
-    if (item.fileId) await deleteFileRecord(item.fileId);
+    await Promise.all(selectedItems.map((item) => item.fileId ? deleteFileRecord(item.fileId) : Promise.resolve()));
   } catch {
-    window.alert("File belum bisa dihapus dari IndexedDB.");
+    window.alert("Sebagian file belum bisa dihapus dari IndexedDB.");
     return false;
   }
-  state.items = state.items.filter((entry) => entry.id !== id);
+  state.items = state.items.filter((entry) => !uniqueIds.includes(entry.id));
   saveItems();
+  resetGridLimits();
   render();
   return true;
 }
@@ -1854,6 +2014,16 @@ function closeFullscreenViewer() {
     state.viewerStatusChanged = false;
     render();
   }
+}
+
+async function deleteActiveFullscreenItem() {
+  const item = state.activeFullscreenItem;
+  if (!item?.id) return;
+  const confirmed = window.confirm(`Hapus "${item.title || item.mediaName || "file ini"}" dari aplikasi?`);
+  if (!confirmed) return;
+  const id = item.id;
+  closeFullscreenViewer();
+  await deleteItem(id, { skipConfirm: true });
 }
 
 async function renderFullscreenContent(item) {
@@ -1946,6 +2116,128 @@ function setupReadableCompletionTracking(element, item) {
     if (element.scrollHeight <= element.clientHeight + 32) markItemCompleted(item);
   }, 3500);
   window.setTimeout(completeIfRead, 600);
+}
+
+function queueVideoThumbnail(item, button, source = "") {
+  if (!item?.id || !button) return;
+  const observer = getVideoThumbnailObserver();
+  button.dataset.thumbnailItemId = item.id;
+  if (source) button.dataset.thumbnailSource = source;
+  observer.observe(button);
+}
+
+function getVideoThumbnailObserver() {
+  if (state.videoThumbnailObserver) return state.videoThumbnailObserver;
+  state.videoThumbnailObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      const button = entry.target;
+      state.videoThumbnailObserver.unobserve(button);
+      const item = state.items.find((entryItem) => entryItem.id === button.dataset.thumbnailItemId);
+      if (!item || item.videoThumb) return;
+      state.videoThumbnailQueue.add(item.id);
+      processVideoThumbnailQueue();
+    });
+  }, { rootMargin: "160px" });
+  return state.videoThumbnailObserver;
+}
+
+async function processVideoThumbnailQueue() {
+  if (state.videoThumbnailBusy) return;
+  const nextId = state.videoThumbnailQueue.values().next().value;
+  if (!nextId) return;
+  state.videoThumbnailQueue.delete(nextId);
+  const item = state.items.find((entry) => entry.id === nextId);
+  if (!item || item.videoThumb) {
+    processVideoThumbnailQueue();
+    return;
+  }
+  state.videoThumbnailBusy = true;
+  try {
+    const thumb = await createVideoThumbnailForItem(item);
+    if (thumb) {
+      state.items = state.items.map((entry) => entry.id === item.id ? { ...entry, videoThumb: thumb } : entry);
+      saveItemsWithoutInsightRefresh();
+      applyCachedVideoThumbnailToDom(item.id, thumb);
+    }
+  } catch {}
+  state.videoThumbnailBusy = false;
+  window.setTimeout(processVideoThumbnailQueue, 250);
+}
+
+function saveItemsWithoutInsightRefresh(items = state.items) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(items.map(cleanItemForStorage)));
+  invalidateRenderCache();
+}
+
+function applyCachedVideoThumbnailToDom(itemId, thumb) {
+  document.querySelectorAll(`[data-thumbnail-item-id="${CSS.escape(itemId)}"]`).forEach((button) => {
+    button.classList.add("has-video-thumb");
+    button.style.backgroundImage = `linear-gradient(rgba(0,0,0,.12), rgba(0,0,0,.42)), url("${thumb}")`;
+  });
+}
+
+async function createVideoThumbnailForItem(item) {
+  let source = getMediaSource(item);
+  let temporaryUrl = "";
+  if (!source && item.fileId) {
+    const record = await getFileRecord(item.fileId);
+    if (!record?.blob) return "";
+    temporaryUrl = URL.createObjectURL(record.blob);
+    source = temporaryUrl;
+  }
+  if (!source) return "";
+  try {
+    return await captureVideoFrame(source);
+  } finally {
+    if (temporaryUrl) URL.revokeObjectURL(temporaryUrl);
+  }
+}
+
+function captureVideoFrame(source) {
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+    video.crossOrigin = "anonymous";
+    let done = false;
+    const finish = (value = "") => {
+      if (done) return;
+      done = true;
+      video.removeAttribute("src");
+      video.load?.();
+      resolve(value);
+    };
+    const capture = () => {
+      if (!video.videoWidth || !video.videoHeight) return finish("");
+      try {
+        const canvas = document.createElement("canvas");
+        const maxWidth = 260;
+        const ratio = Math.min(1, maxWidth / video.videoWidth);
+        canvas.width = Math.max(1, Math.round(video.videoWidth * ratio));
+        canvas.height = Math.max(1, Math.round(video.videoHeight * ratio));
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        finish(canvas.toDataURL("image/jpeg", 0.62));
+      } catch {
+        finish("");
+      }
+    };
+    video.addEventListener("error", () => finish(""), { once: true });
+    video.addEventListener("loadedmetadata", () => {
+      try {
+        const seekTime = Number.isFinite(video.duration) && video.duration > 1 ? Math.min(1, video.duration * 0.08) : 0;
+        video.currentTime = seekTime;
+      } catch {
+        capture();
+      }
+    }, { once: true });
+    video.addEventListener("seeked", capture, { once: true });
+    video.addEventListener("loadeddata", () => window.setTimeout(capture, 120), { once: true });
+    window.setTimeout(() => finish(""), 2600);
+    video.src = source;
+  });
 }
 
 function applyVideoThumbnail(video, source) {
@@ -2106,6 +2398,7 @@ function updateFullscreenImageNav() {
   const canNavigate = imageItems.length > 1;
   dom.fullscreenPrevBtn.hidden = !canNavigate;
   dom.fullscreenNextBtn.hidden = !canNavigate;
+  if (dom.fullscreenDeleteBtn) dom.fullscreenDeleteBtn.hidden = !Boolean(state.activeFullscreenItem?.id);
 }
 
 async function showAdjacentImage(direction) {
@@ -2372,7 +2665,7 @@ function isImageFile(file) {
 
 function isVideoFile(file) {
   return file.type.startsWith("video/")
-    || ["mp4", "webm", "ogg", "mov", "m4v"].includes(getFileExtension(file.name));
+    || ["mp4", "mkv", "webm", "ogg", "mov", "m4v", "3gp", "avi"].includes(getFileExtension(file.name));
 }
 
 function isDocumentItem(item) {
@@ -2383,12 +2676,13 @@ function isDocumentItem(item) {
 
 function isDocumentFile(file) {
   const extension = getFileExtension(file.name);
-  return ["md", "pdf", "doc", "docx"].includes(extension)
+  return ["md", "txt", "pdf", "doc", "docx"].includes(extension)
     || [
       "application/pdf",
       "application/msword",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      "text/markdown"
+      "text/markdown",
+      "text/plain"
     ].includes(file.type);
 }
 
@@ -2400,7 +2694,7 @@ function getDocumentType(item) {
 
   const source = `${item.mediaName || ""} ${item.mediaUrl || ""} ${item.mediaType || ""}`.toLowerCase();
   if (source.includes("application/pdf") || /\.pdf(?:$|[?#\s])/.test(source)) return "PDF";
-  if (source.includes("text/markdown") || source.includes("text/plain") || /\.md(?:$|[?#\s])/.test(source)) return "Markdown";
+  if (source.includes("text/markdown") || source.includes("text/plain") || /\.(md|txt)(?:$|[?#\s])/.test(source)) return "Markdown";
   if (source.includes("application/msword") || source.includes("officedocument.wordprocessingml") || /\.docx?(?:$|[?#\s])/.test(source)) return "Word";
   return "Dokumen";
 }
@@ -2437,8 +2731,10 @@ function getMimeForFileExtension(name = "") {
     gif: "image/gif",
     jpeg: "image/jpeg",
     jpg: "image/jpeg",
+    avi: "video/x-msvideo",
     m4v: "video/mp4",
     md: "text/markdown",
+    mkv: "video/x-matroska",
     mov: "video/quicktime",
     mp4: "video/mp4",
     ogg: "video/ogg",
@@ -2446,7 +2742,9 @@ function getMimeForFileExtension(name = "") {
     png: "image/png",
     svg: "image/svg+xml",
     webm: "video/webm",
+    txt: "text/plain",
     webp: "image/webp",
+    "3gp": "video/3gpp",
     doc: "application/msword",
     docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   };
@@ -2923,7 +3221,8 @@ function findDuplicateByHash(fileHash) {
 }
 
 async function hashBlob(blob) {
-  if (!globalThis.crypto?.subtle) return "";
+  if (!globalThis.crypto?.subtle) return `${blob.name || "blob"}:${blob.size || 0}:${blob.lastModified || 0}:${blob.type || ""}`;
+  if (blob.size > 24 * 1024 * 1024) return `${blob.name || "blob"}:${blob.size || 0}:${blob.lastModified || 0}:${blob.type || ""}`;
   const buffer = await blob.arrayBuffer();
   const digest = await crypto.subtle.digest("SHA-256", buffer);
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -3315,7 +3614,7 @@ function resetJournalForm() {
   dom.journalResultInput.value = "Belum selesai";
   if (dom.journalProfitInput) dom.journalProfitInput.value = "";
   if (dom.journalLossInput) dom.journalLossInput.value = "";
-  dom.journalFileMeta.textContent = "Gambar chart, video, PDF, Markdown, Word";
+  dom.journalFileMeta.textContent = "Gambar chart, video, PDF, Markdown, TXT, Word";
   dom.journalMessage.textContent = "";
   state.pendingJournalFiles = [];
   requestAnimationFrame(() => dom.journalTitleInput?.focus());
@@ -3325,7 +3624,7 @@ async function handleJournalFilePick() {
   const files = [...(dom.journalFileInput?.files || [])];
   state.pendingJournalFiles = [];
   if (!files.length) {
-    dom.journalFileMeta.textContent = "Gambar chart, video, PDF, Markdown, Word";
+    dom.journalFileMeta.textContent = "Gambar chart, video, PDF, Markdown, TXT, Word";
     return;
   }
   try {
@@ -3989,7 +4288,7 @@ async function getRelevantLocalContext(query) {
   const scoredItems = [];
 
   for (const item of state.items) {
-    const metaText = [item.title, item.category, item.notes, item.code, item.mediaName, item.documentType, ...(item.tags || [])].join(" ");
+    const metaText = [item.title, item.type, item.category, item.status, item.collection, item.notes, item.code, item.mediaName, item.documentType, item.source === "storage-scan" ? "hasil scan storage HP" : "", ...(item.tags || [])].join(" ");
     let text = metaText;
     let score = scoreText(metaText, terms);
     if (isDocumentItem(item) && getDocumentType(item) !== "PDF") {
@@ -4054,11 +4353,242 @@ function closeAiChatPopup() {
 async function askAiPopup() {
   const question = dom.aiPopupQuestionInput?.value.trim() || "";
   if (!question) return;
+  if (dom.aiPopupQuestionInput) dom.aiPopupQuestionInput.value = "";
   if (dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = true;
+
+  const localResult = handleAiActionCommand(question);
+  if (localResult) {
+    state.aiPopupLastQuestion = question;
+    state.aiPopupLastAnswer = localResult.text || "";
+    if (dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = true;
+    return;
+  }
+
   const answer = await runAssistantQuestion(question, dom.aiPopupAnswer);
   state.aiPopupLastQuestion = question;
   state.aiPopupLastAnswer = answer;
   if (dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = !answer;
+}
+
+function clearAiPopupChat() {
+  state.aiPopupLastQuestion = "";
+  state.aiPopupLastAnswer = "";
+  state.pendingAiAction = null;
+  if (dom.aiPopupQuestionInput) dom.aiPopupQuestionInput.value = "";
+  if (dom.aiPopupAnswer) {
+    dom.aiPopupAnswer.replaceChildren();
+    dom.aiPopupAnswer.textContent = "Tanya materi, jurnal, statistik, atau pertanyaan umum di sini.";
+  }
+  if (dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = true;
+}
+
+function handleAiActionCommand(question) {
+  const normalized = question.toLowerCase();
+  if (/^(hapus|reset|bersihkan)\s+(chat|riwayat)/i.test(normalized)) {
+    clearAiPopupChat();
+    return { text: "Riwayat chat AI popup dihapus." };
+  }
+
+  if (/^(cari|tampilkan|lihat|daftar)/i.test(normalized) && /(file|materi|video|gambar|dokumen|scan)/i.test(normalized)) {
+    const matches = findItemsForAiCommand(question).slice(0, 25);
+    const text = matches.length
+      ? `Ditemukan ${matches.length} item:
+${matches.map((item, index) => `${index + 1}. ${item.title} • ${getItemFileType(item)} • ${item.status}${item.source === "storage-scan" ? " • hasil scan" : ""}`).join("\n")}`
+      : "Tidak ada file/materi yang cocok.";
+    renderAiPopupText(text);
+    return { text };
+  }
+
+  if (/^(tambah|buat|simpan)\s+materi/i.test(normalized)) {
+    const created = createMaterialFromAiCommand(question);
+    const text = created ? `Materi baru dibuat: ${created.title}` : "Format: tambah materi: judul | isi materi";
+    renderAiPopupText(text);
+    return { text };
+  }
+
+  if (/\b(hapus|delete|remove)\b/i.test(normalized) && /(file|materi|video|gambar|dokumen|pdf|word|markdown|scan|semua)/i.test(normalized)) {
+    const matches = findItemsForAiCommand(question);
+    showAiActionConfirmation({
+      type: "delete",
+      ids: matches.map((item) => item.id),
+      title: "Konfirmasi hapus",
+      message: matches.length ? `Ditemukan ${matches.length} item. Hapus dari aplikasi?` : "Tidak ada item yang cocok untuk dihapus."
+    });
+    return { text: matches.length ? `Menunggu konfirmasi hapus ${matches.length} item.` : "Tidak ada item yang cocok untuk dihapus." };
+  }
+
+  if (/\b(arsip|arsipkan)\b/i.test(normalized)) {
+    const matches = findItemsForAiCommand(question);
+    showAiActionConfirmation({
+      type: "archive",
+      ids: matches.map((item) => item.id),
+      title: "Konfirmasi arsip",
+      message: matches.length ? `Ditemukan ${matches.length} item. Arsipkan?` : "Tidak ada item yang cocok untuk diarsipkan."
+    });
+    return { text: matches.length ? `Menunggu konfirmasi arsip ${matches.length} item.` : "Tidak ada item yang cocok untuk diarsipkan." };
+  }
+
+  if (/\b(ubah|ganti|set)\b/i.test(normalized) && /\b(status)\b/i.test(normalized)) {
+    const status = statuses.find((entry) => normalized.includes(entry.toLowerCase()));
+    if (!status) return null;
+    const matches = findItemsForAiCommand(question);
+    showAiActionConfirmation({
+      type: "status",
+      status,
+      ids: matches.map((item) => item.id),
+      title: "Konfirmasi ubah status",
+      message: matches.length ? `Ditemukan ${matches.length} item. Ubah status menjadi ${status}?` : "Tidak ada item yang cocok untuk diubah statusnya."
+    });
+    return { text: matches.length ? `Menunggu konfirmasi ubah status ${matches.length} item.` : "Tidak ada item yang cocok untuk diubah statusnya." };
+  }
+
+  return null;
+}
+
+function renderAiPopupText(text) {
+  if (!dom.aiPopupAnswer) return;
+  dom.aiPopupAnswer.replaceChildren();
+  dom.aiPopupAnswer.textContent = text;
+}
+
+function findItemsForAiCommand(command) {
+  const normalized = command.toLowerCase();
+  let items = [...state.items];
+  if (/\b(hasil scan|scan hp|file scan|storage)\b/i.test(normalized)) items = items.filter((item) => item.source === "storage-scan" || item.collection === "Scan HP" || (item.tags || []).includes("Scan HP"));
+  if (/\bvideo\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "Video");
+  if (/\bgambar\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "Gambar");
+  if (/\b(pdf)\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "PDF");
+  if (/\b(word|doc|docx)\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "Word");
+  if (/\b(markdown|md|txt)\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "Markdown");
+  if (/\b(dokumen|document)\b/i.test(normalized)) items = items.filter((item) => ["Dokumen", "PDF", "Word", "Markdown"].includes(getItemFileType(item)));
+  if (/\bbelum (dibaca|ditonton|selesai)\b/i.test(normalized)) items = items.filter((item) => item.status === "Belum dibaca");
+  if (/\b(selesai|sudah dibaca|sudah ditonton)\b/i.test(normalized) && !/ubah|ganti|set/i.test(normalized)) items = items.filter((item) => item.status === "Selesai");
+
+  const keywords = extractItemSearchKeywords(command);
+  if (keywords.length && !/\bsemua\b/i.test(normalized)) {
+    items = items.filter((item) => {
+      const haystack = [item.title, item.mediaName, item.category, item.status, item.collection, item.notes, ...(item.tags || [])].join(" ").toLowerCase();
+      return keywords.every((word) => haystack.includes(word));
+    });
+  }
+  return items;
+}
+
+function extractItemSearchKeywords(command) {
+  const normalized = command.toLowerCase()
+    .replace(/\b(hapus|delete|remove|arsip|arsipkan|ubah|ganti|set|status|menjadi|ke|cari|tampilkan|lihat|daftar|file|materi|video|gambar|dokumen|pdf|word|doc|docx|markdown|md|txt|hasil|scan|storage|hp|semua|yang|belum|pernah|dibaca|ditonton|selesai|sudah|dari|aplikasi)\b/g, " ")
+    .replace(/[^a-z0-9_.-]+/g, " ")
+    .trim();
+  return normalized.split(/\s+/).filter((word) => word.length > 2).slice(0, 8);
+}
+
+function showAiActionConfirmation(action) {
+  if (!dom.aiPopupAnswer) return;
+  state.pendingAiAction = action;
+  dom.aiPopupAnswer.replaceChildren();
+  const wrap = document.createElement("div");
+  wrap.className = "ai-action-confirm";
+  const title = document.createElement("strong");
+  title.textContent = action.title || "Konfirmasi";
+  const message = document.createElement("p");
+  message.textContent = action.message;
+  const preview = document.createElement("div");
+  preview.className = "ai-action-preview";
+  const matched = state.items.filter((item) => action.ids.includes(item.id)).slice(0, 8);
+  preview.textContent = matched.map((item, index) => `${index + 1}. ${item.title} • ${getItemFileType(item)}`).join("\n");
+  const buttons = document.createElement("div");
+  buttons.className = "ai-action-buttons";
+  const yes = document.createElement("button");
+  yes.type = "button";
+  yes.className = "primary-button";
+  yes.textContent = "YES";
+  yes.disabled = !action.ids.length;
+  yes.addEventListener("click", confirmPendingAiAction);
+  const no = document.createElement("button");
+  no.type = "button";
+  no.className = "ghost-button";
+  no.textContent = "NO";
+  no.addEventListener("click", cancelPendingAiAction);
+  buttons.append(yes, no);
+  wrap.append(title, message);
+  if (preview.textContent) wrap.append(preview);
+  wrap.append(buttons);
+  dom.aiPopupAnswer.append(wrap);
+}
+
+async function confirmPendingAiAction() {
+  const action = state.pendingAiAction;
+  if (!action) return;
+  state.pendingAiAction = null;
+  const now = new Date().toISOString();
+  if (action.type === "delete") {
+    const ok = await deleteItemsByIds(action.ids);
+    renderAiPopupText(ok ? `Selesai. ${action.ids.length} item dihapus dari aplikasi.` : "Hapus dibatalkan/gagal.");
+    return;
+  }
+  if (action.type === "archive") {
+    state.items = state.items.map((item) => action.ids.includes(item.id) ? { ...item, archived: true, updatedAt: now } : item);
+    saveItems();
+    render();
+    renderAiPopupText(`Selesai. ${action.ids.length} item diarsipkan.`);
+    return;
+  }
+  if (action.type === "status") {
+    state.items = state.items.map((item) => action.ids.includes(item.id) ? { ...item, status: action.status, updatedAt: now } : item);
+    saveItems();
+    render();
+    renderAiPopupText(`Selesai. ${action.ids.length} item diubah menjadi ${action.status}.`);
+  }
+}
+
+function cancelPendingAiAction() {
+  state.pendingAiAction = null;
+  renderAiPopupText("Aksi dibatalkan.");
+}
+
+function createMaterialFromAiCommand(command) {
+  const raw = command.replace(/^\s*(tambah|buat|simpan)\s+materi\s*:?/i, "").trim();
+  if (!raw) return null;
+  const [titlePart, ...bodyParts] = raw.split("|");
+  const title = (titlePart || "Materi Baru").trim().slice(0, 100) || "Materi Baru";
+  const body = (bodyParts.join("|").trim() || title).slice(0, 8000);
+  const now = new Date().toISOString();
+  const markdown = `# ${title}
+
+${body}
+`;
+  const item = {
+    id: createId(),
+    title,
+    type: "Dokumen",
+    category: "Markdown",
+    status: "Belum dibaca",
+    collection: "Catatan AI",
+    tags: ["AI"],
+    notes: "Materi dibuat lewat AI Action Mode.",
+    checklist: [],
+    code: "",
+    mediaUrl: `data:text/markdown;charset=utf-8,${encodeURIComponent(markdown)}`,
+    fileId: "",
+    mediaKind: "document",
+    mediaName: `${sanitizeFileName(title)}.md`,
+    mediaType: "text/markdown",
+    mediaSize: markdown.length,
+    documentType: "Markdown",
+    documentText: "",
+    fileHash: "",
+    favorite: false,
+    archived: false,
+    revisionHistory: [],
+    uploadedAt: now,
+    createdAt: now,
+    updatedAt: now
+  };
+  state.items = [item, ...state.items];
+  saveItems();
+  resetGridLimits();
+  render();
+  return item;
 }
 
 function saveAiPopupAsMaterial() {

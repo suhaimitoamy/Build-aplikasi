@@ -374,6 +374,13 @@ textarea:focus-visible {
   gap: 8px;
 }
 
+.scan-storage-message {
+  min-height: 1.25em;
+  margin: -4px 0 10px;
+  color: var(--muted-strong);
+  font-size: 0.82rem;
+}
+
 .section-head h2 {
   font-size: 1.28rem;
 }
@@ -467,6 +474,30 @@ textarea:focus-visible {
   height: 100%;
   object-fit: cover;
   cursor: pointer;
+}
+
+.video-fallback {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  background-position: center;
+  background-size: cover;
+}
+
+.video-fallback.has-video-thumb {
+  color: #fff;
+  text-shadow: 0 3px 18px rgba(0, 0, 0, 0.8);
+}
+
+.video-play-mark {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid rgba(244, 255, 247, 0.32);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
 }
 
 .media-slot video {
@@ -1373,6 +1404,9 @@ textarea:focus-visible {
 }
 
 .fullscreen-footer {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
   padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid rgba(244, 255, 247, 0.08);
   background: rgba(2, 3, 2, 0.92);
@@ -2885,6 +2919,36 @@ body.sidebar-open {
 
 .ai-popup-actions {
   justify-content: space-between;
+}
+
+.ai-action-confirm {
+  display: grid;
+  gap: 10px;
+}
+
+.ai-action-confirm p {
+  margin: 0;
+  color: var(--muted-strong);
+}
+
+.ai-action-preview {
+  max-height: 130px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(244, 255, 247, 0.04);
+  color: var(--text);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  padding: 10px;
+}
+
+.ai-action-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
 @media (min-width: 720px) {

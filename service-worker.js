@@ -1,4 +1,4 @@
-const CACHE_VERSION = "20260518smoothai1";
+const CACHE_VERSION = "20260518scanai1";
 const CACHE_NAME = `trading-library-manager-${CACHE_VERSION}`;
 
 const APP_SHELL = [
