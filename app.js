@@ -5,7 +5,7 @@ const SETTINGS_KEY = "tradingLibraryManager.settings.v1";
 const DB_NAME = "tradingLibraryManager.files";
 const DB_VERSION = 1;
 const FILE_STORE = "files";
-const APP_VERSION = "20260518nativeScanProgressFix1";
+const APP_VERSION = "20260518removeScanFileHp1";
 const JOURNAL_STORAGE_KEY = "tradingLibraryManager.journals.v1";
 const ASSISTANT_SETTINGS_KEY = "tradingLibraryManager.assistantSettings.v1";
 const INSIGHT_CACHE_KEY = "tradingLibraryManager.insightCache.v1";
@@ -68,9 +68,6 @@ const dom = {
   selectModeBtn: document.querySelector("#selectModeBtn"),
   bulkDeleteBtn: document.querySelector("#bulkDeleteBtn"),
   cancelSelectBtn: document.querySelector("#cancelSelectBtn"),
-  scanStorageBtn: document.querySelector("#scanStorageBtn"),
-  storageScanInput: document.querySelector("#storageScanInput"),
-  scanStorageMessage: document.querySelector("#scanStorageMessage"),
   libraryGrid: document.querySelector("#libraryGrid"),
   codeGrid: document.querySelector("#codeGrid"),
   mediaGrid: document.querySelector("#mediaGrid"),
@@ -365,10 +362,6 @@ function bindEvents() {
   dom.selectModeBtn.addEventListener("click", enterSelectMode);
   dom.cancelSelectBtn.addEventListener("click", exitSelectMode);
   dom.bulkDeleteBtn.addEventListener("click", deleteSelectedItems);
-  dom.scanStorageBtn?.addEventListener("click", scanStorageFiles);
-  dom.storageScanInput?.addEventListener("change", handleStorageScanInput);
-  window.addEventListener("trading-storage-scan-result", handleNativeStorageScanResult);
-  window.addEventListener("trading-storage-thumbnail-result", handleNativeThumbnailResult);
 
   dom.navButtons.forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.view));
