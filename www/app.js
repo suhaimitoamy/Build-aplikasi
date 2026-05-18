@@ -5,7 +5,7 @@ const SETTINGS_KEY = "tradingLibraryManager.settings.v1";
 const DB_NAME = "tradingLibraryManager.files";
 const DB_VERSION = 1;
 const FILE_STORE = "files";
-const APP_VERSION = "20260517finalfix1";
+const APP_VERSION = "20260518smoothai1";
 const JOURNAL_STORAGE_KEY = "tradingLibraryManager.journals.v1";
 const ASSISTANT_SETTINGS_KEY = "tradingLibraryManager.assistantSettings.v1";
 const INSIGHT_CACHE_KEY = "tradingLibraryManager.insightCache.v1";
@@ -117,6 +117,13 @@ const dom = {
   assistantQuestionInput: document.querySelector("#assistantQuestionInput"),
   assistantAnswer: document.querySelector("#assistantAnswer"),
   assistantMessage: document.querySelector("#assistantMessage"),
+  aiChatToggleBtn: document.querySelector("#aiChatToggleBtn"),
+  aiChatPopup: document.querySelector("#aiChatPopup"),
+  closeAiChatBtn: document.querySelector("#closeAiChatBtn"),
+  aiPopupQuestionInput: document.querySelector("#aiPopupQuestionInput"),
+  askAiPopupBtn: document.querySelector("#askAiPopupBtn"),
+  aiPopupAnswer: document.querySelector("#aiPopupAnswer"),
+  saveAiPopupMaterialBtn: document.querySelector("#saveAiPopupMaterialBtn"),
   insightBox: document.querySelector("#insightBox"),
   fullscreenAnalyzeBtn: document.querySelector("#fullscreenAnalyzeBtn"),
   fullscreenAnalysis: document.querySelector("#fullscreenAnalysis"),
@@ -210,7 +217,12 @@ const state = {
   journalOpenId: "",
   statsCalendarYear: null,
   statsCalendarMonth: null,
-  lastBackAt: 0
+  lastBackAt: 0,
+  gridLimits: {},
+  itemsVersion: 0,
+  filterCache: { key: "", items: null },
+  aiPopupLastQuestion: "",
+  aiPopupLastAnswer: ""
 };
 
 async function boot() {
@@ -232,10 +244,22 @@ async function boot() {
 }
 
 function bindEvents() {
-  dom.searchInput.addEventListener("input", () => {
+  const debouncedSearchRender = debounce(() => {
     state.query = dom.searchInput.value.trim();
+    resetGridLimits();
     saveSettings();
     render();
+  }, 220);
+
+  const debouncedCollectionRender = debounce(() => {
+    state.collectionFilter = dom.collectionFilterInput?.value.trim() || "";
+    resetGridLimits();
+    saveSettings();
+    render();
+  }, 220);
+
+  dom.searchInput.addEventListener("input", () => {
+    debouncedSearchRender();
   });
 
   dom.focusSearchBtn.addEventListener("click", () => {
@@ -263,6 +287,7 @@ function bindEvents() {
     state.collectionFilter = "";
     state.query = "";
     state.showArchived = false;
+    resetGridLimits();
     dom.searchInput.value = "";
     if (dom.collectionFilterInput) dom.collectionFilterInput.value = "";
     if (dom.showArchivedInput) dom.showArchivedInput.checked = false;
@@ -273,18 +298,18 @@ function bindEvents() {
 
   dom.sortSelect?.addEventListener("change", () => {
     state.sort = dom.sortSelect.value;
+    resetGridLimits();
     saveSettings();
     render();
   });
 
   dom.collectionFilterInput?.addEventListener("input", () => {
-    state.collectionFilter = dom.collectionFilterInput.value.trim();
-    saveSettings();
-    render();
+    debouncedCollectionRender();
   });
 
   dom.showArchivedInput?.addEventListener("change", () => {
     state.showArchived = dom.showArchivedInput.checked;
+    resetGridLimits();
     saveSettings();
     render();
   });
@@ -307,6 +332,16 @@ function bindEvents() {
   dom.updateInsightBtn?.addEventListener("click", updateInsightCache);
   dom.clearInsightBtn?.addEventListener("click", clearInsightCache);
   dom.askAssistantBtn?.addEventListener("click", askAssistant);
+  dom.aiChatToggleBtn?.addEventListener("click", toggleAiChatPopup);
+  dom.closeAiChatBtn?.addEventListener("click", closeAiChatPopup);
+  dom.askAiPopupBtn?.addEventListener("click", askAiPopup);
+  dom.saveAiPopupMaterialBtn?.addEventListener("click", saveAiPopupAsMaterial);
+  dom.aiPopupQuestionInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      askAiPopup();
+    }
+  });
   dom.fullscreenAnalyzeBtn?.addEventListener("click", analyzeActiveChart);
   document.addEventListener("click", closeOpenCardMenus);
   document.addEventListener("click", () => closeOpenFilterMenus());
@@ -425,6 +460,7 @@ function closeTopLayerForBack() {
   if (dom.fullscreenDialog?.open) { closeFullscreenViewer(); return true; }
   if (dom.dialog?.open) { closeForm(); return true; }
   if (dom.documentDialog?.open) { closeDocumentDialog(); return true; }
+  if (dom.aiChatPopup && !dom.aiChatPopup.hidden) { closeAiChatPopup(); return true; }
   if (document.querySelector(".filter-menu:not([hidden])")) { closeOpenFilterMenus(); return true; }
   if (document.querySelector(".card-menu:not([hidden])")) { closeOpenCardMenus(); return true; }
   return false;
@@ -441,6 +477,7 @@ function loadItems() {
 
 function saveItems(items = state.items) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(items.map(cleanItemForStorage)));
+  invalidateRenderCache();
   refreshInsightCache();
 }
 
@@ -507,6 +544,7 @@ function fillSelect(select, options) {
 function renderPills() {
   renderPillSet(dom.categoryPills, ["Semua", ...categories], state.category, (value) => {
     state.category = value;
+    resetGridLimits();
     saveSettings();
     renderPills();
     render();
@@ -514,6 +552,7 @@ function renderPills() {
 
   renderPillSet(dom.statusPills, ["Semua", ...statuses], state.status, (value) => {
     state.status = value;
+    resetGridLimits();
     saveSettings();
     renderPills();
     render();
@@ -521,6 +560,7 @@ function renderPills() {
 
   renderPillSet(dom.typePills, fileTypes, state.fileType, (value) => {
     state.fileType = value;
+    resetGridLimits();
     saveSettings();
     renderPills();
     render();
@@ -528,6 +568,7 @@ function renderPills() {
 
   renderPillSet(dom.mediaTypePills, fileTypes.filter((value) => value !== "Kode"), state.mediaType, (value) => {
     state.mediaType = value;
+    resetGridLimits();
     saveSettings();
     renderPills();
     render();
@@ -585,6 +626,22 @@ function closeOpenFilterMenus(except = null) {
     menu.hidden = true;
     menu.parentElement?.querySelector(".filter-toggle-button")?.setAttribute("aria-expanded", "false");
   });
+}
+
+const GRID_BATCH_SIZE = 24;
+
+function invalidateRenderCache(resetLimits = false) {
+  state.itemsVersion += 1;
+  state.filterCache = { key: "", items: null };
+  if (resetLimits) resetGridLimits();
+}
+
+function resetGridLimits() {
+  state.gridLimits = {};
+}
+
+function getGridKey(container) {
+  return container?.id || "grid";
 }
 
 function setView(view, shouldRender = true) {
@@ -659,9 +716,25 @@ function renderActiveView({ allMatches, codeItems, mediaItems }) {
 }
 
 function getFilteredItems(items) {
+  const canCache = items === state.items;
+  const cacheKey = canCache ? [
+    state.itemsVersion,
+    state.category,
+    state.status,
+    state.fileType,
+    state.collectionFilter,
+    state.query,
+    state.sort,
+    state.showArchived
+  ].join("|") : "";
+
+  if (canCache && state.filterCache.key === cacheKey && Array.isArray(state.filterCache.items)) {
+    return state.filterCache.items;
+  }
+
   const query = state.query.toLowerCase();
   const collectionQuery = state.collectionFilter.toLowerCase();
-  return [...items]
+  const result = [...items]
     .filter((item) => state.showArchived || !item.archived)
     .filter((item) => state.category === "Semua" || item.category === state.category)
     .filter((item) => state.status === "Semua" || item.status === state.status)
@@ -689,6 +762,9 @@ function getFilteredItems(items) {
       ].some((part) => String(part || "").toLowerCase().includes(query));
     })
     .sort(compareItems);
+
+  if (canCache) state.filterCache = { key: cacheKey, items: result };
+  return result;
 }
 
 function compareItems(a, b) {
@@ -710,10 +786,29 @@ function dateValue(value) {
 }
 
 function renderGrid(container, items) {
+  if (!container) return;
   container.replaceChildren();
+  const gridKey = getGridKey(container);
+  const currentLimit = state.gridLimits[gridKey] || GRID_BATCH_SIZE;
+  const limit = Math.min(items.length, currentLimit);
   const fragment = document.createDocumentFragment();
-  items.forEach((item) => fragment.append(createCard(item)));
+  items.slice(0, limit).forEach((item) => fragment.append(createCard(item)));
   container.append(fragment);
+
+  if (limit < items.length) {
+    const loadMoreWrap = document.createElement("div");
+    loadMoreWrap.className = "load-more-card";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ghost-button load-more-button";
+    button.textContent = `Muat lagi ${Math.min(GRID_BATCH_SIZE, items.length - limit)} dari ${items.length - limit} item`;
+    button.addEventListener("click", () => {
+      state.gridLimits[gridKey] = limit + GRID_BATCH_SIZE;
+      render();
+    });
+    loadMoreWrap.append(button);
+    container.append(loadMoreWrap);
+  }
 }
 
 function enterSelectMode() {
@@ -870,16 +965,7 @@ function renderMediaSlot(slot, item) {
   }
 
   if (mediaKind === "video") {
-    if (source) {
-      renderVideoSlot(slot, item, source);
-    } else if (item.fileId) {
-      renderLoadingSlot(slot, item);
-      loadItemObjectUrl(item).then((url) => {
-        if (slot.dataset.itemId === item.id && url) renderVideoSlot(slot, item, url);
-      }).catch(() => renderLoadingSlot(slot, item));
-    } else {
-      renderLoadingSlot(slot, item);
-    }
+    renderVideoSlot(slot, item, source);
     return;
   }
 
@@ -901,14 +987,13 @@ function renderImageSlot(slot, item, source) {
 
 function renderVideoSlot(slot, item, source) {
   slot.replaceChildren();
-  const video = document.createElement("video");
-  video.controls = false;
-  video.preload = "metadata";
-  video.playsInline = true;
-  video.src = source;
-  applyVideoThumbnail(video, source);
-  video.addEventListener("click", () => showFullscreenViewer(item));
-  slot.append(video, makeMediaLabel("Video"));
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "media-fallback video-fallback";
+  button.textContent = "▶";
+  button.setAttribute("aria-label", `Buka video ${item.title || ""}`.trim());
+  button.addEventListener("click", () => showFullscreenViewer(item));
+  slot.append(button, makeMediaLabel("Video"));
 }
 
 function renderLoadingSlot(slot, item) {
@@ -1043,12 +1128,6 @@ function renderStatistics(items) {
   const performanceRing = journalStats.entryCount ? Math.round((journalStats.win / journalStats.entryCount) * 100) : 0;
 
   dom.statisticsViewContent.innerHTML = `
-    <div class="stats-period-control stats-month-control">
-      <button type="button" data-stats-month-nav="-1" aria-label="Bulan sebelumnya">‹</button>
-      <span>${monthInfo.label}</span>
-      <button type="button" data-stats-month-nav="1" aria-label="Bulan berikutnya">›</button>
-    </div>
-
     <div class="stats-summary-grid">
       ${makeStatisticsCard("Total Materi", total, "stack")}
       ${makeStatisticsCard("Video", totals.video, "video")}
@@ -1078,9 +1157,13 @@ function renderStatistics(items) {
     </section>
 
     <section class="stats-panel calendar-panel">
-      <div class="calendar-title">
-        <h3>${monthInfo.label}</h3>
-        <p>Monthly Journal • ${journalStats.monthJournalCount} jurnal</p>
+      <div class="calendar-title calendar-title-with-nav">
+        <button type="button" class="calendar-nav-button" data-stats-month-nav="-1" aria-label="Bulan sebelumnya">‹</button>
+        <div>
+          <h3>${monthInfo.label}</h3>
+          <p>Monthly Journal • ${journalStats.monthJournalCount} jurnal</p>
+        </div>
+        <button type="button" class="calendar-nav-button" data-stats-month-nav="1" aria-label="Bulan berikutnya">›</button>
       </div>
       ${calendarHtml}
     </section>
@@ -1108,18 +1191,6 @@ function renderStatistics(items) {
           <span>Belum dibaca <strong>${unread}</strong></span>
           <span>Dipakai <strong>${used}</strong></span>
         </div>
-      </section>
-
-      <section class="stats-panel feature-plan-card">
-        <h3>Rencana Fitur Berikutnya</h3>
-        <ul>
-          <li>Perbaikan PDF Viewer</li>
-          <li>Thumbnail Video</li>
-          <li>Thumbnail PDF/Dokumen</li>
-          <li>Quick Action di Header</li>
-          <li>Navigasi Sidebar</li>
-          <li>Bulk Delete / Checklist</li>
-        </ul>
       </section>
     </div>
   `;
@@ -1826,7 +1897,7 @@ async function renderFullscreenContent(item) {
   }
 
   if (documentType === "PDF") {
-    await renderPdfReader(item);
+    renderFullscreenDocumentSummary(item);
     return;
   }
 
@@ -2209,30 +2280,27 @@ async function renderDocumentPreview(container, item, expanded = false) {
   const documentType = getDocumentType(item);
   const name = getDocumentName(item);
 
-  let source = getMediaSource(item);
-  if (documentType === "PDF" && source) {
-    const frame = document.createElement("iframe");
-    frame.className = "pdf-preview";
-    frame.title = name;
-    frame.src = source;
-    container.append(frame);
-    return;
-  }
+  if (documentType === "PDF") {
+    const summary = document.createElement("div");
+    summary.className = "document-summary";
 
-  if (documentType === "PDF" && item.fileId) {
-    try {
-      source = await loadItemObjectUrl(item, expanded ? "document" : "rendered");
-    } catch {
-      source = "";
-    }
-    if (source) {
-      const frame = document.createElement("iframe");
-      frame.className = "pdf-preview";
-      frame.title = name;
-      frame.src = source;
-      container.append(frame);
-      return;
-    }
+    const mark = document.createElement("div");
+    mark.className = "media-fallback document-fallback";
+    mark.textContent = "PDF";
+
+    const copy = document.createElement("div");
+    copy.className = "document-summary-copy";
+
+    const title = document.createElement("strong");
+    title.textContent = name;
+
+    const meta = document.createElement("span");
+    meta.textContent = "PDF tersimpan • Reader dinonaktifkan";
+
+    copy.append(title, meta);
+    summary.append(mark, copy);
+    container.append(summary);
+    return;
   }
 
   if (documentType === "Markdown") {
@@ -2953,55 +3021,6 @@ async function getFileBlob(item) {
   const source = getMediaSource(item);
   if (source?.startsWith("data:")) return dataUrlToBlob(source);
   return null;
-}
-
-async function renderPdfReader(item) {
-  const shell = document.createElement("article");
-  shell.className = "offline-reader pdf-reader";
-  const title = document.createElement("h3");
-  title.textContent = getDocumentName(item);
-  shell.append(title);
-
-  const text = item.documentText || await (async () => {
-    const blob = await getFileBlob(item);
-    return blob ? extractPdfText(blob).catch(() => "") : "";
-  })();
-
-  if (text) {
-    const pre = document.createElement("pre");
-    pre.className = "pdf-text-reader";
-    pre.textContent = text;
-    shell.append(pre);
-  } else {
-    const note = document.createElement("p");
-    note.className = "reader-note";
-    note.textContent = "PDF belum bisa dirender penuh di WebView perangkat ini. File tetap tersimpan; gunakan tombol Buka / Download dari kartu jika halaman PDF kosong.";
-    shell.append(note);
-  }
-
-  const source = await getFullscreenSource(item);
-  if (source && !isAndroidWebView()) {
-    const details = document.createElement("details");
-    const summary = document.createElement("summary");
-    summary.textContent = "Viewer PDF asli";
-    const frameWrap = document.createElement("div");
-    frameWrap.className = "pdf-frame-shell";
-    const frame = document.createElement("iframe");
-    frame.className = "fullscreen-pdf";
-    frame.title = item.title || getDocumentName(item);
-    frame.src = `${source}#toolbar=1&navpanes=0&scrollbar=1`;
-    frameWrap.append(frame);
-    details.append(summary, frameWrap);
-    shell.append(details);
-  }
-
-  dom.fullscreenStage.classList.add("is-reader-stage");
-  dom.fullscreenStage.replaceChildren(shell);
-  setupReadableCompletionTracking(shell, item);
-}
-
-function isAndroidWebView() {
-  return /Android/i.test(navigator.userAgent || "") && (/wv/i.test(navigator.userAgent || "") || /Capacitor/i.test(navigator.userAgent || ""));
 }
 
 async function renderDocxReader(item) {
@@ -3926,43 +3945,163 @@ async function testGeminiConnection() {
 }
 
 async function askAssistant() {
-  saveGeminiSettings();
   const question = dom.assistantQuestionInput.value.trim();
-  if (!question) return;
+  await runAssistantQuestion(question, dom.assistantAnswer);
+}
+
+async function runAssistantQuestion(question, targetElement) {
+  saveGeminiSettings();
+  if (!question) return "";
   if (!state.geminiApiKey) {
-    dom.assistantAnswer.textContent = "Isi API key dulu di Pengaturan API.";
-    return;
+    if (targetElement) targetElement.textContent = "Isi API key dulu di Pengaturan API.";
+    return "";
   }
   refreshInsightCache({ renderPanel: state.view === "assistant" });
-  dom.assistantAnswer.textContent = "Menganalisis berdasarkan insight lokal...";
-  const relevant = getRelevantLocalContext(question);
-  const prompt = `Kamu adalah asisten jurnal trading pribadi. Jawab dalam bahasa Indonesia, ringkas, praktis, dan berdasarkan data pengguna. Jangan memberi sinyal pasti buy/sell.\n\nInsight kebiasaan lokal:\n${state.insightCache?.text || "Belum ada insight."}\n\nKonteks relevan dari file/jurnal:\n${relevant}\n\nPertanyaan pengguna:\n${question}`;
+  if (targetElement) targetElement.textContent = "Menganalisis dari materi, jurnal, statistik, lalu pengetahuan AI jika perlu...";
+  const context = await getRelevantLocalContext(question);
+  const prompt = `Kamu adalah asisten trading pribadi di aplikasi Trading Library Manager. Jawab dalam bahasa Indonesia, ringkas, praktis, dan edukatif. Jangan memberi sinyal pasti buy/sell.
+
+Aturan sumber:
+1. Prioritaskan Sumber Lokal dari materi terupload, jurnal, statistik, catatan file, dan insight lokal.
+2. Jika Sumber Lokal tidak cukup, boleh jawab memakai pengetahuan umum AI/Gemini.
+3. Di akhir jawaban tulis sumber secara jelas, misalnya "Sumber: materi terupload", "Sumber: jurnal trading", "Sumber: statistik", atau "Sumber: pengetahuan AI/Gemini, bukan dari materi/jurnal pengguna".
+
+Insight kebiasaan lokal:
+${state.insightCache?.text || "Belum ada insight."}
+
+${context.text}
+
+Pertanyaan pengguna:
+${question}`;
   try {
     const answer = await callAI([{ text: prompt }]);
-    dom.assistantAnswer.textContent = answer;
+    if (targetElement) targetElement.textContent = answer;
+    return answer;
   } catch (error) {
-    dom.assistantAnswer.textContent = `Gagal memanggil ${getProviderLabel(state.aiProvider)}: ${error.message || "API error"}`;
+    const message = `Gagal memanggil ${getProviderLabel(state.aiProvider)}: ${error.message || "API error"}`;
+    if (targetElement) targetElement.textContent = message;
+    return "";
   }
 }
 
-function getRelevantLocalContext(query) {
-  const q = query.toLowerCase().split(/\s+/).filter((word) => word.length > 2).slice(0, 12);
-  const scoredItems = state.items.map((item) => ({ item, score: scoreText([item.title, item.category, item.notes, item.documentText, ...(item.tags || [])].join(" "), q) }))
-    .filter((entry) => entry.score > 0)
+async function getRelevantLocalContext(query) {
+  const terms = query.toLowerCase().split(/\s+/).filter((word) => word.length > 2).slice(0, 12);
+  const scoredItems = [];
+
+  for (const item of state.items) {
+    const metaText = [item.title, item.category, item.notes, item.code, item.mediaName, item.documentType, ...(item.tags || [])].join(" ");
+    let text = metaText;
+    let score = scoreText(metaText, terms);
+    if (isDocumentItem(item) && getDocumentType(item) !== "PDF") {
+      try {
+        const docText = await readItemText(item);
+        if (docText) {
+          const clipped = docText.slice(0, 4000);
+          text = `${metaText}\n${clipped}`;
+          score += scoreText(clipped, terms);
+        }
+      } catch {}
+    }
+    if (score > 0) scoredItems.push({ item, score, text });
+  }
+
+  const itemRows = scoredItems
     .sort((a, b) => b.score - a.score)
-    .slice(0, 5)
-    .map(({ item }) => `File: ${item.title} | ${item.category} | ${item.notes || item.documentText || ""}`);
-  const scoredJournals = state.journals.map((journal) => ({ journal, score: scoreText([journal.title, journal.market, journal.setup, journal.plan, journal.evaluation, journal.mistakes, journal.lessons, journal.emotion].join(" "), q) }))
+    .slice(0, 6)
+    .map(({ item, text }) => `Materi/File: ${item.title} | ${item.category} | ${String(text || "").slice(0, 1200)}`);
+
+  const journalRows = state.journals.map((journal) => ({ journal, score: scoreText([journal.title, journal.market, journal.setup, journal.plan, journal.evaluation, journal.mistakes, journal.lessons, journal.emotion].join(" "), terms) }))
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, 8)
     .map(({ journal }) => `Jurnal: ${journal.date} ${journal.market} ${journal.setup} ${journal.result} ${getJournalProfitLossText(journal)} | Catatan: ${journal.plan} | Evaluasi: ${journal.evaluation} | Kesalahan: ${journal.mistakes} | Pelajaran: ${journal.lessons} | Emosi: ${journal.emotion}`);
-  return [...scoredJournals, ...scoredItems].join("\n") || "Tidak ada konteks yang sangat relevan. Gunakan insight umum lokal.";
+
+  const stats = calculateJournalStats(state.journals);
+  const statsRow = `Statistik: total jurnal ${state.journals.length}, win rate ${stats.winRate}%, profit ${formatTradeAmount(stats.totalProfit)}, loss ${formatTradeAmount(stats.totalLoss)}, net P/L ${formatTradeAmount(stats.netProfit)}.`;
+  const localRows = [...journalRows, ...itemRows];
+  return {
+    hasLocalContext: localRows.length > 0,
+    text: localRows.length
+      ? `Sumber Lokal relevan:\n${statsRow}\n${localRows.join("\n")}`
+      : `Sumber Lokal relevan:\n${statsRow}\nTidak ada materi/jurnal yang cocok langsung dengan pertanyaan. Jika menjawab di luar data aplikasi, tulis sumber sebagai pengetahuan AI/Gemini.`
+  };
 }
 
 function scoreText(text, terms) {
   const value = String(text || "").toLowerCase();
   return terms.reduce((sum, term) => sum + (value.includes(term) ? 1 : 0), 0);
+}
+
+function toggleAiChatPopup() {
+  if (!dom.aiChatPopup) return;
+  if (dom.aiChatPopup.hidden) openAiChatPopup();
+  else closeAiChatPopup();
+}
+
+function openAiChatPopup() {
+  if (!dom.aiChatPopup) return;
+  dom.aiChatPopup.hidden = false;
+  dom.aiChatToggleBtn?.classList.add("is-active");
+  requestAnimationFrame(() => dom.aiPopupQuestionInput?.focus());
+}
+
+function closeAiChatPopup() {
+  if (!dom.aiChatPopup) return;
+  dom.aiChatPopup.hidden = true;
+  dom.aiChatToggleBtn?.classList.remove("is-active");
+}
+
+async function askAiPopup() {
+  const question = dom.aiPopupQuestionInput?.value.trim() || "";
+  if (!question) return;
+  if (dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = true;
+  const answer = await runAssistantQuestion(question, dom.aiPopupAnswer);
+  state.aiPopupLastQuestion = question;
+  state.aiPopupLastAnswer = answer;
+  if (dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = !answer;
+}
+
+function saveAiPopupAsMaterial() {
+  const question = state.aiPopupLastQuestion || dom.aiPopupQuestionInput?.value.trim() || "";
+  const answer = state.aiPopupLastAnswer || dom.aiPopupAnswer?.textContent || "";
+  if (!question || !answer) return;
+  const now = new Date();
+  const iso = now.toISOString();
+  const title = `Catatan AI ${iso.slice(0, 10)} ${String(now.getHours()).padStart(2, "0")}.${String(now.getMinutes()).padStart(2, "0")}`;
+  const markdown = `# ${title}\n\n## Pertanyaan\n${question}\n\n## Jawaban\n${answer}\n`;
+  const encoded = encodeURIComponent(markdown);
+  const item = {
+    id: createId(),
+    title,
+    type: "Dokumen",
+    category: "Markdown",
+    status: "Belum dibaca",
+    collection: "Catatan AI",
+    tags: ["AI", "Chat"],
+    notes: "Materi dibuat dari popup chat AI.",
+    checklist: [],
+    code: "",
+    mediaUrl: `data:text/markdown;charset=utf-8,${encoded}`,
+    fileId: "",
+    mediaKind: "document",
+    mediaName: `${sanitizeFileName(title)}.md`,
+    mediaType: "text/markdown",
+    mediaSize: markdown.length,
+    documentType: "Markdown",
+    documentText: "",
+    fileHash: "",
+    favorite: false,
+    archived: false,
+    revisionHistory: [],
+    uploadedAt: iso,
+    createdAt: iso,
+    updatedAt: iso
+  };
+  state.items = [item, ...state.items];
+  saveItems();
+  resetGridLimits();
+  render();
+  if (dom.aiPopupAnswer) dom.aiPopupAnswer.textContent = `${answer}\n\n✓ Disimpan sebagai materi: ${title}`;
 }
 
 async function askFromJournal(id) {
@@ -4115,7 +4254,7 @@ async function analyzeActiveChart() {
   showFullscreenAnalysis("Mengompres gambar dan menganalisis chart...");
   try {
     const inline = await makeGeminiImagePart(item);
-    const prompt = `Analisis chart trading ini secara edukatif, bukan sinyal pasti. Fokus pada:\n- bias trend\n- struktur market\n- BOS / CHoCH jika terlihat\n- area Order Block\n- area FVG\n- Supply & Demand\n- liquidity / sweep\n- zona entry potensial agresif dan konservatif\n- invalidasi\n- risiko\n- catatan berdasarkan kebiasaan jurnal pengguna\n\nInsight kebiasaan pengguna:\n${state.insightCache?.text || "Belum ada insight."}\n\nFormat jawaban ringkas dengan poin yang mudah dibaca.`;
+    const prompt = `Analisis chart trading ini secara edukatif, bukan sinyal pasti. Fokus pada:\n- bias trend\n- struktur market\n- BOS / CHoCH jika terlihat\n- area Order Block\n- area FVG\n- Supply & Demand\n- liquidity / sweep\n- zona entry potensial agresif dan konservatif\n- invalidasi\n- risiko\n- catatan berdasarkan kebiasaan jurnal pengguna\n\nInsight kebiasaan pengguna:\n${state.insightCache?.text || "Belum ada insight."}\n\nFormat jawaban ringkas dengan poin yang mudah dibaca. Di akhir jawaban tulis: Sumber: gambar chart yang dianalisis + insight/jurnal pengguna jika dipakai.`;
     const answer = await callAI([{ text: prompt }, inline]);
     showFullscreenAnalysis(answer);
     if (dom.assistantAnswer) dom.assistantAnswer.textContent = answer;
