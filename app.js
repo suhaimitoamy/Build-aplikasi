@@ -2364,6 +2364,16 @@ async function deleteActiveFullscreenItem() {
   if (!item?.id) return;
   const confirmed = window.confirm(`Hapus "${item.title || item.mediaName || "file ini"}" dari aplikasi?`);
   if (!confirmed) return;
+
+  if (item.isJournalAttachment || item.journalId || String(item.id).includes(":")) {
+    const parsed = getJournalAttachmentTarget(item);
+    if (parsed?.journalId && parsed?.fileId) {
+      closeFullscreenViewer();
+      await removeJournalAttachment(parsed.journalId, parsed.fileId, { skipConfirm: true });
+      return;
+    }
+  }
+
   const id = item.id;
   closeFullscreenViewer();
   await deleteItem(id, { skipConfirm: true });
@@ -4531,12 +4541,29 @@ function createJournalAttachment(journal, attachment) {
 }
 
 async function deleteJournalAttachment(journalId, fileId) {
-  if (!journalId || !fileId) return;
+  return removeJournalAttachment(journalId, fileId);
+}
+
+function getJournalAttachmentTarget(item) {
+  if (!item) return null;
+  const id = String(item.id || "");
+  const [idJournalId, idFileId] = id.includes(":") ? id.split(":") : ["", ""];
+  return {
+    journalId: item.journalId || idJournalId,
+    fileId: item.attachmentFileId || item.fileId || idFileId
+  };
+}
+
+async function removeJournalAttachment(journalId, fileId, options = {}) {
+  if (!journalId || !fileId) return false;
   const journal = state.journals.find((entry) => entry.id === journalId);
-  if (!journal) return;
+  if (!journal) return false;
   const attachment = (journal.attachments || []).find((entry) => entry.fileId === fileId);
-  const confirmed = window.confirm(`Hapus lampiran "${attachment?.name || "jurnal"}"?`);
-  if (!confirmed) return;
+  if (!attachment) return false;
+  if (!options.skipConfirm) {
+    const confirmed = window.confirm(`Hapus lampiran "${attachment.name || "jurnal"}"?`);
+    if (!confirmed) return false;
+  }
   await deleteFileRecord(fileId).catch(() => {});
   state.journals = state.journals.map((entry) => {
     if (entry.id !== journalId) return entry;
@@ -4548,11 +4575,15 @@ async function deleteJournalAttachment(journalId, fileId) {
   });
   saveJournals();
   render();
+  return true;
 }
 
 function journalAttachmentToItem(journal, attachment) {
   return {
     id: `${journal.id}:${attachment.fileId}`,
+    journalId: journal.id,
+    attachmentFileId: attachment.fileId,
+    isJournalAttachment: true,
     title: `${journal.title} - ${attachment.name || "Lampiran"}`,
     type: attachment.kind === "image" ? "Gambar Chart" : attachment.kind === "video" ? "Video Pembelajaran" : "Dokumen",
     category: attachment.kind === "image" ? "Gambar Chart" : attachment.kind === "video" ? "Video" : getCategoryForDocumentType(attachment.documentType),
