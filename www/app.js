@@ -5,7 +5,7 @@ const SETTINGS_KEY = "tradingLibraryManager.settings.v1";
 const DB_NAME = "tradingLibraryManager.files";
 const DB_VERSION = 1;
 const FILE_STORE = "files";
-const APP_VERSION = "20260519TradingWorkspaceAI1";
+const APP_VERSION = "20260519MaterialContentCache1";
 const JOURNAL_STORAGE_KEY = "tradingLibraryManager.journals.v1";
 const ASSISTANT_SETTINGS_KEY = "tradingLibraryManager.assistantSettings.v1";
 const INSIGHT_CACHE_KEY = "tradingLibraryManager.insightCache.v1";
@@ -246,6 +246,8 @@ const state = {
   assistantChatHistory: [],
   assistantMode: "coach",
   aiLastMaterialResults: [],
+  materialContentCache: new Map(),
+  materialContentHydrated: false,
   scanProgress: null
 };
 
@@ -3521,10 +3523,23 @@ function revokeRenderedObjectUrls() {
 async function readItemText(item) {
   if (item.documentText) return item.documentText;
   if (item.textPreview) return item.textPreview;
-  if (item.file instanceof Blob) return item.file.text();
+  if (item.file instanceof Blob) {
+    const docType = item.documentType || getDocumentType(item);
+    if (docType === "Word") return extractDocumentTextFromBlob(item.file, docType).catch(() => "");
+    return item.file.text();
+  }
   if (item.fileId) {
     const record = await getFileRecord(item.fileId);
-    return record?.blob ? record.blob.text() : "";
+    if (record?.documentText) return record.documentText;
+    if (record?.blob) {
+      const docType = record.documentType || item.documentType || getDocumentType(item);
+      const extracted = await extractDocumentTextFromBlob(record.blob, docType).catch(() => docType === "Word" ? "" : record.blob.text());
+      if (extracted && !record.documentText) {
+        await putFileRecord({ ...record, documentText: extracted }).catch(() => {});
+      }
+      return extracted || "";
+    }
+    return "";
   }
   return decodeTextDataUrl(getMediaSource(item));
 }
@@ -5188,7 +5203,74 @@ async function askAssistant() {
   await processAssistantInput(question, "assistant");
 }
 
-function buildLocalAssistantQuickAnswer(question) {
+async function hydrateMaterialContentsForQuery(query = "", options = {}) {
+  const maxItems = options.maxItems || 220;
+  const docs = state.items
+    .filter((item) => !item.archived && shouldHydrateMaterialContent(item))
+    .slice(0, maxItems);
+  if (!docs.length) return;
+  const keywords = extractItemSearchKeywords(query);
+  const prioritized = docs.sort((a, b) => {
+    const aMeta = [a.title, a.mediaName, a.category, a.collection, a.notes, ...(a.tags || [])].join(" ").toLowerCase();
+    const bMeta = [b.title, b.mediaName, b.category, b.collection, b.notes, ...(b.tags || [])].join(" ").toLowerCase();
+    const aScore = keywords.reduce((sum, word) => sum + (aMeta.includes(word) ? 1 : 0), 0);
+    const bScore = keywords.reduce((sum, word) => sum + (bMeta.includes(word) ? 1 : 0), 0);
+    return bScore - aScore;
+  });
+  const concurrency = 4;
+  let cursor = 0;
+  async function worker() {
+    while (cursor < prioritized.length) {
+      const item = prioritized[cursor++];
+      const text = await getCachedMaterialContent(item);
+      if (text) item.documentText = text;
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, prioritized.length) }, worker));
+  state.materialContentHydrated = true;
+}
+
+function shouldHydrateMaterialContent(item) {
+  if (!item) return false;
+  const fileType = getItemFileType(item);
+  return item.documentText
+    || item.textPreview
+    || item.fileId
+    || /^data:text\//i.test(getMediaSource(item))
+    || ["Markdown", "Word", "PDF"].includes(fileType)
+    || item.mediaKind === "document";
+}
+
+async function getCachedMaterialContent(item) {
+  if (!item) return "";
+  const cacheKey = item.fileId || item.id;
+  if (cacheKey && state.materialContentCache.has(cacheKey)) return state.materialContentCache.get(cacheKey);
+  let text = item.documentText || item.textPreview || "";
+  if (!text && item.fileId) {
+    const record = await getFileRecord(item.fileId).catch(() => null);
+    if (record?.documentText) {
+      text = record.documentText;
+    } else if (record?.blob) {
+      const docType = record.documentType || item.documentType || getDocumentType(item);
+      text = await extractDocumentTextFromBlob(record.blob, docType).catch(() => docType === "Word" ? "" : record.blob.text());
+      if (text && !record.documentText) await putFileRecord({ ...record, documentText: text }).catch(() => {});
+    }
+  }
+  if (!text) text = decodeTextDataUrl(getMediaSource(item));
+  text = normalizeMaterialContentText(text).slice(0, 30000);
+  if (cacheKey) state.materialContentCache.set(cacheKey, text);
+  return text;
+}
+
+function normalizeMaterialContentText(text) {
+  return String(text || "")
+    .replace(/\u0000/g, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{4,}/g, "\n\n\n")
+    .trim();
+}
+
+async function buildLocalAssistantQuickAnswer(question) {
   const normalized = normalizeCommandText(question);
   const stats = calculateJournalStats(state.journals);
   if (/\b(berapa|jumlah|total)\b.*\b(jurnal|entry|entri)\b/i.test(normalized) || /\b(sudah ada|ada)\b.*\b(jurnal|entry|entri)\b/i.test(normalized)) {
@@ -5319,6 +5401,7 @@ function getRelatedMaterialsForConcept(question, concept = null) {
 }
 
 async function getRelevantLocalContext(question) {
+  await hydrateMaterialContentsForQuery(question);
   const keywords = extractItemSearchKeywords(question);
   const questionText = normalizeCommandText(question);
   const stats = calculateJournalStats(state.journals);
@@ -5328,8 +5411,8 @@ async function getRelevantLocalContext(question) {
   const journalPool = mergeUniqueById([...matchedJournals, ...recentJournals]).slice(0, 10);
 
   const materialText = matchedItems.map((item, index) => {
-    const body = [item.notes, item.documentText, item.code].filter(Boolean).join("\n").slice(0, 700);
-    return `${index + 1}. ${item.title || "Tanpa judul"} | ${getItemFileType(item)} | ${item.category || "-"} | ${item.status || "-"}\nCatatan/isi pendek: ${body || "Tidak ada ringkasan."}`;
+    const body = buildRelevantMaterialSnippet(item, keywords, 1100);
+    return `${index + 1}. ${item.title || "Tanpa judul"} | ${getItemFileType(item)} | ${item.category || "-"} | ${item.status || "-"}\nPotongan isi relevan: ${body || "Tidak ada ringkasan."}`;
   }).join("\n\n");
 
   const journalText = journalPool.map((journal, index) => {
@@ -5352,12 +5435,36 @@ async function getRelevantLocalContext(question) {
   return { text };
 }
 
+function buildRelevantMaterialSnippet(item, keywords = [], maxLength = 900) {
+  const text = [item.notes, item.documentText, item.code].filter(Boolean).join("\n").trim();
+  if (!text) return "";
+  const lower = text.toLowerCase();
+  const hit = (keywords || []).find((word) => word && lower.includes(word));
+  if (!hit) return text.slice(0, maxLength);
+  const index = lower.indexOf(hit);
+  const start = Math.max(0, index - Math.floor(maxLength * 0.35));
+  const end = Math.min(text.length, start + maxLength);
+  const prefix = start > 0 ? "..." : "";
+  const suffix = end < text.length ? "..." : "";
+  return `${prefix}${text.slice(start, end)}${suffix}`;
+}
+
 function rankContextItems(questionText, keywords) {
   return [...state.items].map((item) => {
-    const haystack = [item.title, item.type, item.category, item.status, item.collection, item.notes, item.documentText, ...(item.tags || [])].join(" ").toLowerCase();
+    const title = [item.title, item.mediaName].join(" ").toLowerCase();
+    const meta = [item.type, item.category, item.status, item.collection, item.notes, ...(item.tags || [])].join(" ").toLowerCase();
+    const content = String(item.documentText || "").toLowerCase();
+    const haystack = `${title} ${meta} ${content}`;
     let score = 0;
-    keywords.forEach((word) => { if (haystack.includes(word)) score += 3; });
-    if (questionText && item.title && questionText.includes(String(item.title).toLowerCase())) score += 8;
+    keywords.forEach((word) => {
+      if (!word) return;
+      if (title.includes(word)) score += 12;
+      if (meta.includes(word)) score += 6;
+      if (content.includes(word)) score += 4;
+    });
+    if (questionText && item.title && questionText.includes(String(item.title).toLowerCase())) score += 12;
+    if (/\b(fvg|fair value gap)\b/i.test(questionText) && /\b(fvg|fair value gap)\b/i.test(haystack)) score += 8;
+    if (/\border block\b|\bob\b/i.test(questionText) && /\border block\b|\bob\b/i.test(haystack)) score += 8;
     if (item.favorite) score += 1;
     score += Math.max(0, 3 - Math.floor((Date.now() - dateValue(item.updatedAt || item.createdAt)) / (30 * 24 * 60 * 60 * 1000)));
     return { item, score };
@@ -5447,13 +5554,14 @@ async function processAssistantInput(question, surface = "assistant") {
   };
 
   try {
+    await hydrateMaterialContentsForQuery(question);
     const actionResult = await handleAiActionCommand(question, { surface });
     if (actionResult) {
       if (!isAssistantSurface && dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = true;
       return finish(actionResult.text || "Selesai.", actionResult.extra || {});
     }
 
-    const quickAnswer = buildLocalAssistantQuickAnswer(question);
+    const quickAnswer = await buildLocalAssistantQuickAnswer(question);
     if (quickAnswer) {
       if (!isAssistantSurface && dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = false;
       if (typeof quickAnswer === "object") return finish(quickAnswer.text, quickAnswer.extra || {});
