@@ -5307,26 +5307,26 @@ function buildLocalAiActionPlan(question) {
   const normalized = normalizeCommandText(question);
   if (!normalized) return null;
 
-  if (/\b(hapus|reset|bersihkan)\b.*\b(chat|riwayat)\b/i.test(normalized)) return { action: "clear_chat" };
+  if (isClearChatIntent(normalized)) return { action: "clear_chat" };
 
-  const openNumber = normalized.match(/\b(?:buka|open|lihat)\b.*\b(?:nomor|no|urutan)?\s*(\d{1,3})\b/i);
+  const openNumber = normalized.match(/\b(?:buka|bukakan|bukain|membuka|open|lihat|tampilkan)\b.*\b(?:nomor|no|urutan)?\s*(\d{1,3})\b/i);
   if (openNumber && state.aiLastMaterialResults.length) {
     return { action: "open_material", resultIndex: Number(openNumber[1]) - 1 };
   }
 
   if (/(tambah|buat|simpan).{0,18}materi/i.test(normalized)) return { action: "add_material", raw: question };
 
-  const hasMaterialTarget = /\b(file|materi|video|gambar|dokumen|pdf|word|markdown|md|catatan|library|isi|bab|chapter|judul|readme)\b/i.test(normalized);
-  const wantsSearch = /\b(cari|carikan|temukan|tampilkan|lihat|daftar|list|buka|open)\b/i.test(normalized) && hasMaterialTarget;
-  if (wantsSearch) return { action: /\b(buka|open|isi|lihat)\b/i.test(normalized) && !/\b(daftar|list)\b/i.test(normalized) ? "open_material" : "search_materials", query: question };
-
-  if (/\b(hapus|delete|remove|buang|hilangkan|singkirkan)\b/i.test(normalized)) return { action: "delete_materials", query: question };
-  if (/\b(arsip|arsipkan|arsipin|sembunyikan)\b/i.test(normalized)) return { action: "archive_materials", query: question };
+  if (isDeleteMaterialIntent(normalized)) return { action: "delete_materials", query: question };
+  if (isArchiveMaterialIntent(normalized)) return { action: "archive_materials", query: question };
 
   const status = detectStatusFromCommand(normalized);
-  if ((/\b(ubah|ganti|set|jadikan|tandai|mark|selesaikan)\b/i.test(normalized) || status) && /\b(status|selesai|dibaca|ditonton|dipelajari|dipakai|revisi)\b/i.test(normalized)) {
+  if ((isStatusMaterialIntent(normalized) || status) && /\b(status|selesai|dibaca|ditonton|dipelajari|dipakai|revisi|tuntas)\b/i.test(normalized)) {
     if (status) return { action: "update_status", query: question, status };
   }
+
+  const hasMaterialTarget = hasAiMaterialTarget(normalized);
+  const wantsSearch = isSearchMaterialIntent(normalized) && hasMaterialTarget;
+  if (wantsSearch) return { action: isOpenMaterialIntent(normalized) && !/\b(daftar|list)\b/i.test(normalized) ? "open_material" : "search_materials", query: question };
 
   if (state.assistantMode === "material") return { action: "search_materials", query: question };
   return null;
@@ -5346,11 +5346,41 @@ function normalizeCommandText(value) {
   return String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function hasAiMaterialTarget(normalized) {
+  return /\b(file|berkas|materi|video|gambar|image|chart|dokumen|pdf|word|doc|docx|markdown|md|txt|catatan|library|isi|bab|chapter|judul|readme)\b/i.test(normalized);
+}
+
+function isClearChatIntent(normalized) {
+  return /\b(hapus|bersihkan|clear|reset)\b.*\b(chat|riwayat|history)\b/i.test(normalized);
+}
+
+function isDeleteMaterialIntent(normalized) {
+  if (isClearChatIntent(normalized)) return false;
+  return /\b(hapus|hapuskan|hapusin|menghapus|dihapus|delete|remove|buang|buangin|membuang|dibuang|hilangkan|menghilangkan|singkirkan)\b/i.test(normalized) && (hasAiMaterialTarget(normalized) || /\b(ini|itu|yang ini|sedang dibuka|terbuka|current|semua|lama|tidak aktif)\b/i.test(normalized));
+}
+
+function isArchiveMaterialIntent(normalized) {
+  return /\b(arsip|arsipkan|arsipin|mengarsipkan|diarsipkan|sembunyikan|menyembunyikan)\b/i.test(normalized) && (hasAiMaterialTarget(normalized) || /\b(ini|itu|semua|lama|tidak aktif)\b/i.test(normalized));
+}
+
+function isOpenMaterialIntent(normalized) {
+  return /\b(buka|bukakan|bukain|membuka|dibuka|open|lihat|tampilkan|bacakan)\b/i.test(normalized) && hasAiMaterialTarget(normalized);
+}
+
+function isSearchMaterialIntent(normalized) {
+  return /\b(cari|carikan|temukan|tampilkan|lihat|daftar|list|buka|bukakan|bukain|membuka|open)\b/i.test(normalized) && hasAiMaterialTarget(normalized);
+}
+
+function isStatusMaterialIntent(normalized) {
+  return /\b(ubah|ganti|set|jadikan|tandai|mark|selesaikan|ubahin|gantikan)\b/i.test(normalized) && hasAiMaterialTarget(normalized);
+}
+
 function shouldUseRemoteActionPlanner(question, surface) {
   if (!state.geminiApiKey && !dom.geminiApiKeyInput?.value.trim()) return false;
   const normalized = normalizeCommandText(question);
   if (state.assistantMode === "action" || state.assistantMode === "material") return true;
-  if (/\b(tolong|coba|bantu|mau|ingin|hapus|buang|arsip|sembunyi|ubah|ganti|tandai|buka|open|lihat|cari|carikan|daftar|list|materi|file|bab|judul|status)\b/i.test(normalized)) return true;
+  if (isDeleteMaterialIntent(normalized) || isArchiveMaterialIntent(normalized) || isOpenMaterialIntent(normalized) || isSearchMaterialIntent(normalized) || isStatusMaterialIntent(normalized)) return true;
+  if (/\b(tolong|coba|bantu|mau|ingin|hapus|hapuskan|hapusin|menghapus|delete|remove|buang|arsip|arsipkan|arsipin|mengarsipkan|sembunyi|sembunyikan|ubah|ganti|tandai|buka|bukakan|bukain|membuka|open|lihat|cari|carikan|daftar|list|materi|file|berkas|bab|judul|status)\b/i.test(normalized)) return true;
   return false;
 }
 
@@ -5459,8 +5489,8 @@ async function executeAiActionPlan(plan, originalQuestion, surface = "popup") {
     const type = action === "delete_materials" ? "delete" : action === "archive_materials" ? "archive" : "status";
     const title = type === "delete" ? "Konfirmasi hapus" : type === "archive" ? "Konfirmasi arsip" : "Konfirmasi ubah status";
     const message = type === "status"
-      ? (matches.length ? `Ditemukan ${matches.length} item. Ubah status menjadi ${plan.status}?` : "Tidak ada item yang cocok untuk diubah statusnya.")
-      : (matches.length ? `Ditemukan ${matches.length} item. ${type === "delete" ? "Hapus dari aplikasi" : "Arsipkan"}?` : `Tidak ada item yang cocok untuk ${type === "delete" ? "dihapus" : "diarsipkan"}.`);
+      ? (matches.length ? `Ditemukan ${matches.length} item. Ubah status menjadi ${plan.status}?` : "Bisa. Sebutkan nama file/materi atau target yang statusnya mau diubah.")
+      : (matches.length ? `Ditemukan ${matches.length} item. ${type === "delete" ? "Hapus dari aplikasi" : "Arsipkan"}?` : `Bisa. Sebutkan nama file/materi atau target yang mau ${type === "delete" ? "dihapus" : "diarsipkan"}.`);
     showAiActionConfirmation({
       type,
       ids: matches.map((item) => item.id),
@@ -5588,7 +5618,7 @@ function findItemsForAiCommand(command) {
 
 function extractItemSearchKeywords(command) {
   const normalized = normalizeCommandText(command)
-    .replace(/\b(tolong|coba|bantu|minta|aku|saya|dong|ya|nih|ini|itu|yang|dari|ke|di|dan|atau|untuk|dengan|lebih|semua|file|materi|video|gambar|dokumen|pdf|word|doc|docx|markdown|md|txt|excel|xls|xlsx|csv|powerpoint|ppt|pptx|hasil|scan|storage|hp|aplikasi|buka|open|lihat|daftar|list|cari|carikan|temukan|tampilkan|hapus|delete|remove|buang|hilangkan|arsip|arsipkan|arsipin|sembunyikan|ubah|ganti|set|status|menjadi|jadikan|tandai|mark|belum|pernah|dibaca|ditonton|selesai|sudah|lama|tidak|aktif|isi|nomor|no|urutan)\b/g, " ")
+    .replace(/\b(apa|apakah|bisa|dapat|mampu|tolong|coba|bantu|minta|aku|saya|kamu|anda|dong|ya|nih|ini|itu|yang|dari|ke|di|dan|atau|untuk|dengan|lebih|semua|file|berkas|materi|video|gambar|image|chart|dokumen|pdf|word|doc|docx|markdown|md|txt|excel|xls|xlsx|csv|powerpoint|ppt|pptx|hasil|scan|storage|hp|aplikasi|buka|bukakan|bukain|membuka|dibuka|open|lihat|daftar|list|cari|carikan|temukan|tampilkan|hapus|hapuskan|hapusin|menghapus|dihapus|delete|remove|buang|buangin|membuang|dibuang|hilangkan|menghilangkan|singkirkan|arsip|arsipkan|arsipin|mengarsipkan|diarsipkan|sembunyikan|menyembunyikan|ubah|ubahin|ganti|gantikan|set|status|menjadi|jadikan|tandai|mark|belum|pernah|dibaca|ditonton|selesai|sudah|lama|tidak|aktif|isi|nomor|no|urutan)\b/g, " ")
     .replace(/[^a-z0-9_.-]+/g, " ")
     .trim();
   return normalized.split(/\s+/).filter((word) => word.length > 2).slice(0, 8);
