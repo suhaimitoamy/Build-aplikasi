@@ -342,8 +342,8 @@ function bindEvents() {
   dom.importBackupInput?.addEventListener("change", importBackup);
   dom.setPinBtn?.addEventListener("click", setLocalPin);
   dom.clearPinBtn?.addEventListener("click", clearLocalPin);
-  dom.newJournalBtn?.addEventListener("click", resetJournalForm);
-  dom.resetJournalBtn?.addEventListener("click", resetJournalForm);
+  dom.newJournalBtn?.addEventListener("click", () => { resetJournalForm(); openJournalEditor("new"); });
+  dom.resetJournalBtn?.addEventListener("click", closeJournalEditor);
   dom.journalForm?.addEventListener("submit", saveJournalForm);
   dom.journalFileInput?.addEventListener("change", handleJournalFilePick);
   dom.aiProviderInput?.addEventListener("change", () => {
@@ -408,6 +408,7 @@ function bindEvents() {
   dom.fullscreenBackBtn.addEventListener("click", closeFullscreenViewer);
   dom.fullscreenCloseBtn.addEventListener("click", closeFullscreenViewer);
   dom.fullscreenExitBtn.addEventListener("click", closeFullscreenViewer);
+  document.addEventListener("click", handleGlobalFullscreenControlClick, true);
   dom.fullscreenPrevBtn.addEventListener("click", () => showAdjacentImage(-1));
   dom.fullscreenNextBtn.addEventListener("click", () => showAdjacentImage(1));
   dom.fullscreenStage.addEventListener("touchstart", handleFullscreenTouchStart, { passive: true });
@@ -2311,6 +2312,31 @@ async function showFullscreenViewer(item) {
   updateFullscreenAnalyzeButton();
 }
 
+function handleGlobalFullscreenControlClick(event) {
+  const target = event.target;
+  if (!target || !dom.fullscreenDialog?.open) return;
+  const closeBtn = target.closest?.("#fullscreenCloseBtn, #fullscreenBackBtn, #fullscreenExitBtn");
+  if (closeBtn) {
+    event.preventDefault();
+    event.stopPropagation();
+    closeFullscreenViewer();
+    return;
+  }
+  const analyzeBtn = target.closest?.("#fullscreenAnalyzeBtn");
+  if (analyzeBtn) {
+    event.preventDefault();
+    event.stopPropagation();
+    analyzeActiveChart();
+    return;
+  }
+  const deleteBtn = target.closest?.("#fullscreenDeleteBtn");
+  if (deleteBtn) {
+    event.preventDefault();
+    event.stopPropagation();
+    deleteActiveFullscreenItem();
+  }
+}
+
 function closeFullscreenViewer() {
   const media = dom.fullscreenStage.querySelector("video, audio");
   if (media) media.pause();
@@ -4182,8 +4208,31 @@ function resetJournalForm() {
   if (dom.journalLossInput) dom.journalLossInput.value = "";
   dom.journalFileMeta.textContent = "Gambar chart, video, PDF, Markdown, TXT, Word";
   dom.journalMessage.textContent = "";
+  if (dom.resetJournalBtn) dom.resetJournalBtn.textContent = "Tutup Editor";
   state.pendingJournalFiles = [];
-  requestAnimationFrame(() => dom.journalTitleInput?.focus());
+}
+
+function openJournalEditor(mode = "new") {
+  if (!dom.journalForm) return;
+  state.journalEditorOpen = true;
+  dom.journalForm.hidden = false;
+  dom.journalForm.classList.add("is-open");
+  if (dom.newJournalBtn) dom.newJournalBtn.textContent = mode === "edit" ? "Editor Aktif" : "Editor Terbuka";
+  requestAnimationFrame(() => {
+    dom.journalForm.scrollIntoView({ block: "start", behavior: "smooth" });
+    dom.journalTitleInput?.focus();
+  });
+}
+
+function closeJournalEditor() {
+  if (!dom.journalForm) return;
+  state.journalEditorOpen = false;
+  dom.journalForm.hidden = true;
+  dom.journalForm.classList.remove("is-open");
+  if (dom.newJournalBtn) dom.newJournalBtn.textContent = "+ Jurnal Baru";
+  state.pendingJournalFiles = [];
+  if (dom.journalFileInput) dom.journalFileInput.value = "";
+  if (dom.journalMessage) dom.journalMessage.textContent = "";
 }
 
 async function handleJournalFilePick() {
@@ -4297,6 +4346,7 @@ async function saveJournalForm(event) {
     state.pendingJournalFiles = [];
     dom.journalFileInput.value = "";
     resetJournalForm();
+    closeJournalEditor();
     render();
   } catch {
     await Promise.all(createdFileIds.map((fileId) => deleteFileRecord(fileId).catch(() => {})));
@@ -4442,23 +4492,62 @@ function makeJournalTextBlock(label, value) {
 
 function createJournalAttachment(journal, attachment) {
   const item = journalAttachmentToItem(journal, attachment);
-  const wrap = document.createElement("button");
-  wrap.type = "button";
-  wrap.className = "journal-attachment";
-  wrap.title = attachment.name || "Lampiran";
+  const wrap = document.createElement("div");
+  wrap.className = "journal-attachment-wrap";
+
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "journal-attachment";
+  open.title = attachment.name || "Lampiran";
   const mark = document.createElement("span");
   mark.textContent = attachment.kind === "image" ? "▣" : attachment.kind === "video" ? "▶" : (attachment.documentType || "DOC");
   const name = document.createElement("small");
   name.textContent = attachment.name || "Lampiran";
-  wrap.append(mark, name);
-  wrap.addEventListener("click", () => showFullscreenViewer(item));
+  open.append(mark, name);
+  open.addEventListener("click", (event) => {
+    event.stopPropagation();
+    showFullscreenViewer(item);
+  });
   if (attachment.kind === "image") {
     loadItemObjectUrl(item).then((url) => {
       if (!url) return;
-      wrap.style.backgroundImage = `linear-gradient(rgba(0,0,0,.28),rgba(0,0,0,.62)), url(${url})`;
+      open.style.backgroundImage = `linear-gradient(rgba(0,0,0,.28),rgba(0,0,0,.62)), url(${url})`;
     }).catch(() => {});
   }
+
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "journal-attachment-remove";
+  remove.textContent = "×";
+  remove.setAttribute("aria-label", `Hapus lampiran ${attachment.name || "jurnal"}`);
+  remove.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    deleteJournalAttachment(journal.id, attachment.fileId);
+  });
+
+  wrap.append(open, remove);
   return wrap;
+}
+
+async function deleteJournalAttachment(journalId, fileId) {
+  if (!journalId || !fileId) return;
+  const journal = state.journals.find((entry) => entry.id === journalId);
+  if (!journal) return;
+  const attachment = (journal.attachments || []).find((entry) => entry.fileId === fileId);
+  const confirmed = window.confirm(`Hapus lampiran "${attachment?.name || "jurnal"}"?`);
+  if (!confirmed) return;
+  await deleteFileRecord(fileId).catch(() => {});
+  state.journals = state.journals.map((entry) => {
+    if (entry.id !== journalId) return entry;
+    return {
+      ...entry,
+      attachments: (entry.attachments || []).filter((item) => item.fileId !== fileId),
+      updatedAt: new Date().toISOString()
+    };
+  });
+  saveJournals();
+  render();
 }
 
 function journalAttachmentToItem(journal, attachment) {
@@ -4501,8 +4590,9 @@ function editJournal(id) {
   dom.journalEmotionInput.value = journal.emotion || "";
   dom.journalFileMeta.textContent = "Tambah lampiran baru bila perlu";
   dom.journalMessage.textContent = "Mode edit jurnal aktif.";
+  if (dom.resetJournalBtn) dom.resetJournalBtn.textContent = "Batal Edit";
   setView("journal");
-  dom.journalForm.scrollIntoView({ block: "start", behavior: "smooth" });
+  openJournalEditor("edit");
 }
 
 async function deleteJournal(id) {
@@ -4864,24 +4954,13 @@ function setAssistantMode(mode = "coach") {
 }
 
 function renderAssistantModeTabs() {
-  const labels = {
-    coach: "Coach Trading",
-    material: "Cari Materi",
-    action: "Aksi Aplikasi"
-  };
   dom.assistantModeButtons?.forEach((button) => {
-    const isActive = (button.dataset.assistantMode || "coach") === state.assistantMode;
-    button.classList.toggle("is-active", isActive);
-    button.setAttribute("aria-selected", String(isActive));
+    button.classList.remove("is-active");
+    button.setAttribute("aria-selected", "false");
   });
-  if (dom.assistantModeLabel) dom.assistantModeLabel.textContent = labels[state.assistantMode] || labels.coach;
+  if (dom.assistantModeLabel) dom.assistantModeLabel.textContent = "Smart Assistant";
   if (dom.assistantQuestionInput) {
-    const placeholders = {
-      coach: "Tanya evaluasi trading, jurnal, atau psikologi trading...",
-      material: "Cari atau buka materi, misalnya: buka materi liquidity sweep...",
-      action: "Tulis perintah aplikasi, misalnya: arsipkan video lama..."
-    };
-    dom.assistantQuestionInput.placeholder = placeholders[state.assistantMode] || placeholders.coach;
+    dom.assistantQuestionInput.placeholder = "Tanya, cari materi, buka file, atau jalankan perintah...";
   }
 }
 
@@ -4924,8 +5003,8 @@ function renderAssistantChatLog() {
     const empty = document.createElement("div");
     empty.className = "assistant-chat-empty";
     empty.innerHTML = `
-      <strong>Mulai dari sini.</strong>
-      <span>Gunakan Coach Trading, Cari Materi, atau Aksi Aplikasi sesuai kebutuhan.</span>
+      <strong>Tulis bebas.</strong>
+      <span>Asisten akan otomatis membaca maksud: coaching, cari materi, buka file, atau aksi aplikasi.</span>
     `;
     dom.assistantChatLog.append(empty);
   } else {
@@ -5206,9 +5285,9 @@ function buildLocalAiActionPlan(question) {
 
   if (/(tambah|buat|simpan).{0,18}materi/i.test(normalized)) return { action: "add_material", raw: question };
 
-  const wantsSearch = /\b(cari|carikan|temukan|tampilkan|lihat|daftar|list|buka|open)\b/i.test(normalized)
-    && /\b(file|materi|video|gambar|dokumen|pdf|word|markdown|md|catatan|library|isi)\b/i.test(normalized);
-  if (wantsSearch) return { action: /\b(buka|open|isi)\b/i.test(normalized) ? "open_material" : "search_materials", query: question };
+  const hasMaterialTarget = /\b(file|materi|video|gambar|dokumen|pdf|word|markdown|md|catatan|library|isi|bab|chapter|judul|readme)\b/i.test(normalized);
+  const wantsSearch = /\b(cari|carikan|temukan|tampilkan|lihat|daftar|list|buka|open)\b/i.test(normalized) && hasMaterialTarget;
+  if (wantsSearch) return { action: /\b(buka|open|isi|lihat)\b/i.test(normalized) && !/\b(daftar|list)\b/i.test(normalized) ? "open_material" : "search_materials", query: question };
 
   if (/\b(hapus|delete|remove|buang|hilangkan|singkirkan)\b/i.test(normalized)) return { action: "delete_materials", query: question };
   if (/\b(arsip|arsipkan|arsipin|sembunyikan)\b/i.test(normalized)) return { action: "archive_materials", query: question };
@@ -5240,7 +5319,7 @@ function shouldUseRemoteActionPlanner(question, surface) {
   if (!state.geminiApiKey && !dom.geminiApiKeyInput?.value.trim()) return false;
   const normalized = normalizeCommandText(question);
   if (state.assistantMode === "action" || state.assistantMode === "material") return true;
-  if (surface === "popup" && /\b(tolong|coba|bantu|mau|ingin|hapus|buang|arsip|sembunyi|ubah|ganti|tandai|buka|cari|daftar|materi|file|status)\b/i.test(normalized)) return true;
+  if (/\b(tolong|coba|bantu|mau|ingin|hapus|buang|arsip|sembunyi|ubah|ganti|tandai|buka|open|lihat|cari|carikan|daftar|list|materi|file|bab|judul|status)\b/i.test(normalized)) return true;
   return false;
 }
 
@@ -5325,11 +5404,16 @@ async function executeAiActionPlan(plan, originalQuestion, surface = "popup") {
         return { text };
       }
     }
-    if (action === "open_material" && matches.length === 1) {
-      openAiMaterialItem(matches[0]);
-      const text = `Saya buka materi: ${matches[0].title}`;
-      if (surface === "popup") renderAiPopupText(text);
-      return { text };
+    if (action === "open_material" && matches.length >= 1) {
+      const picked = pickBestMaterialMatch(matches, plan.query || originalQuestion);
+      if (picked) {
+        openAiMaterialItem(picked);
+        const text = matches.length === 1
+          ? `Saya buka materi: ${picked.title}`
+          : `Saya buka materi paling cocok: ${picked.title}`;
+        if (surface === "popup") renderAiPopupText(text);
+        return { text };
+      }
     }
     const text = matches.length
       ? `Ditemukan ${matches.length} materi. Pilih tombol Buka untuk membuka isi penuh di viewer aplikasi.`
@@ -5359,6 +5443,34 @@ async function executeAiActionPlan(plan, originalQuestion, surface = "popup") {
   }
 
   return null;
+}
+
+function pickBestMaterialMatch(matches = [], query = "") {
+  if (!matches.length) return null;
+  const keywords = extractItemSearchKeywords(query);
+  const normalized = normalizeCommandText(query);
+  let best = matches[0];
+  let bestScore = -1;
+  matches.forEach((item, index) => {
+    const title = normalizeCommandText(item.title || item.mediaName || "");
+    const haystack = [item.title, item.mediaName, item.category, item.status, item.collection, item.notes, item.documentText, ...(item.tags || [])].join(" ").toLowerCase();
+    let score = Math.max(0, 20 - index);
+    keywords.forEach((word) => {
+      if (title.includes(word)) score += 8;
+      else if (haystack.includes(word)) score += 3;
+    });
+    const chapter = normalized.match(/\b(?:bab|chapter)\s*(\d{1,3})\b/i);
+    if (chapter) {
+      const num = chapter[1].padStart(2, "0");
+      if (new RegExp(`\\b(?:bab|chapter)\\s*0?${chapter[1]}\\b`, "i").test(item.title || "")) score += 30;
+      if (String(item.title || "").includes(`Bab ${num}`)) score += 30;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = item;
+    }
+  });
+  return best;
 }
 
 function applyMaterialSearchToLibrary(query) {

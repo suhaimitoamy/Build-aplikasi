@@ -180,11 +180,11 @@
               <p id="journalCount">0 jurnal</p>
             </div>
             <div class="section-actions">
-              <button class="primary-button" id="newJournalBtn" type="button">Jurnal Baru</button>
+              <button class="primary-button" id="newJournalBtn" type="button">+ Jurnal Baru</button>
             </div>
           </div>
 
-          <form class="journal-form" id="journalForm">
+          <form class="journal-form journal-editor" id="journalForm" hidden>
             <input id="journalId" type="hidden">
             <div class="form-grid">
               <label class="field">
@@ -255,7 +255,7 @@
             </label>
             <p class="form-message" id="journalMessage" role="status"></p>
             <div class="form-actions">
-              <button class="ghost-button" id="resetJournalBtn" type="button">Batal Edit</button>
+              <button class="ghost-button" id="resetJournalBtn" type="button">Tutup Editor</button>
               <button class="primary-button" type="submit">Simpan Jurnal</button>
             </div>
           </form>
@@ -281,19 +281,19 @@
               <div class="assistant-hero-copy">
                 <span class="assistant-kicker">Trading Workspace</span>
                 <h3>Ruang Asisten</h3>
-                <p>Tempat belajar, mencari materi, membaca jurnal, dan mengontrol aplikasi dengan bahasa natural.</p>
+                <p>Tulis bebas. Asisten otomatis memahami apakah kamu ingin coaching, mencari materi, membuka file, atau menjalankan aksi aplikasi.</p>
               </div>
-              <div class="assistant-mode-tabs" id="assistantModeTabs" role="tablist" aria-label="Mode asisten">
-                <button class="assistant-mode-tab is-active" type="button" data-assistant-mode="coach">Coach Trading</button>
-                <button class="assistant-mode-tab" type="button" data-assistant-mode="material">Cari Materi</button>
-                <button class="assistant-mode-tab" type="button" data-assistant-mode="action">Aksi Aplikasi</button>
+              <div class="assistant-unified-route" id="assistantModeTabs" aria-label="Routing asisten">
+                <span>Coach Trading</span>
+                <span>Cari Materi</span>
+                <span>Aksi Aplikasi</span>
               </div>
             </section>
 
             <section class="assistant-card assistant-chat-card assistant-room-card">
               <div class="assistant-chat-headline">
                 <div>
-                  <span id="assistantModeLabel">Coach Trading</span>
+                  <span id="assistantModeLabel">Smart Assistant</span>
                   <h3>Chat Asisten</h3>
                 </div>
                 <button class="ghost-button danger" id="clearAssistantHistoryBtn" type="button">Hapus Riwayat</button>
@@ -303,7 +303,7 @@
               <div class="assistant-chat-bar">
                 <label class="assistant-chat-input" for="assistantQuestionInput">
                   <span class="chat-attach-icon" aria-hidden="true">AI</span>
-                  <textarea id="assistantQuestionInput" rows="1" maxlength="1600" placeholder="Tanyakan apa saja tentang trading..."></textarea>
+                  <textarea id="assistantQuestionInput" rows="1" maxlength="1600" placeholder="Tanya, cari materi, buka file, atau jalankan perintah..."></textarea>
                 </label>
                 <button class="primary-button assistant-send-button" id="askAssistantBtn" type="button">Kirim</button>
               </div>
@@ -395,31 +395,7 @@
       </main>
 
 
-      <button class="ai-chat-fab" id="aiChatToggleBtn" type="button" aria-label="Buka quick assistant">AI</button>
-      <section class="ai-chat-popup" id="aiChatPopup" aria-label="Quick assistant" hidden>
-        <div class="ai-chat-grabber" aria-hidden="true"></div>
-        <div class="ai-chat-head">
-          <div>
-            <span>Asisten Quick</span>
-            <h2>Bantu cepat</h2>
-            <p>Untuk aksi panjang, buka Ruang Asisten.</p>
-          </div>
-          <button class="icon-button close-button" id="closeAiChatBtn" type="button" aria-label="Tutup chat AI">×</button>
-        </div>
-        <div class="ai-chat-body">
-          <div class="assistant-answer ai-popup-answer" id="aiPopupAnswer">Tulis perintah singkat, misalnya: cari materi liquidity sweep.</div>
-          <label class="field ai-popup-field">
-            <span>Pertanyaan</span>
-            <textarea id="aiPopupQuestionInput" rows="2" maxlength="1600" placeholder="Tulis cepat ke AI..."></textarea>
-          </label>
-          <div class="form-actions compact-actions ai-popup-actions">
-            <button class="ghost-button danger" id="clearAiPopupBtn" type="button">Hapus Chat</button>
-            <button class="ghost-button" id="saveAiPopupMaterialBtn" type="button" disabled>Simpan sebagai Materi</button>
-            <button class="primary-button" id="askAiPopupBtn" type="button">Kirim</button>
-          </div>
-        </div>
-      </section>
-
+      <!-- Floating AI popup removed: AI is focused inside Ruang Asisten. -->
       <nav class="bottom-nav" aria-label="Navigasi utama">
         <button class="nav-button is-active" type="button" data-view="library">
           <span class="nav-icon library-icon" aria-hidden="true"></span>
