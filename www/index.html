@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#050806">
     <meta name="description" content="Trading Library Manager untuk mengelola materi, indikator, gambar chart, video pembelajaran, dan dokumen trading.">
     <title>Trading Library Manager</title>
-    <link rel="stylesheet" href="./style.css?v=20260518githubPageWebAI1">
+    <link rel="stylesheet" href="./style.css?v=20260519TradingWorkspaceAI1">
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'%3E%3Crect width='96' height='96' rx='24' fill='%23050806'/%3E%3Cpath d='M20 62h12V36H20v26Zm22 0h12V24H42v38Zm22 0h12V44H64v18Z' fill='%2339ff88'/%3E%3Cpath d='M18 72h60' stroke='%23f4fff7' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E">
   </head>
   <body>
@@ -269,67 +269,98 @@
         </section>
 
         <section class="view" id="assistantView" aria-labelledby="assistantHeading" hidden>
-          <div class="section-head">
+          <div class="section-head assistant-title-head">
             <div>
-              <h2 id="assistantHeading">Asisten</h2>
-              <p id="assistantCount">Insight lokal + AI hemat API</p>
+              <h2 id="assistantHeading">Ruang Asisten</h2>
+              <p id="assistantCount">Coach trading, cari materi, dan aksi aplikasi</p>
             </div>
           </div>
 
-          <div class="assistant-grid">
-            <section class="assistant-card">
-              <h3>Pengaturan API AI</h3>
-              <label class="field">
-                <span>Provider</span>
-                <select id="aiProviderInput">
-                  <option value="gemini">Gemini</option>
-                  <option value="groq">Groq</option>
-                  <option value="openrouter" selected>OpenRouter</option>
-                  <option value="mistral">Mistral / Mimo</option>
-                  <option value="openai">OpenAI</option>
-                  <option value="custom">Custom OpenAI-Compatible</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>API Key</span>
-                <input id="geminiApiKeyInput" type="password" autocomplete="off" placeholder="Isi API key di webpage, bukan di kode">
-              </label>
-              <label class="field">
-                <span>Model</span>
-                <input id="geminiModelInput" type="text" value="google/gemini-2.0-flash-001" placeholder="google/gemini-2.0-flash-001">
-              </label>
-              <label class="field" hidden>
-                <span>Base URL Custom</span>
-                <input id="aiBaseUrlInput" type="url" autocomplete="off" placeholder="https://domain-api-kamu.com/v1/chat/completions">
-              </label>
-              <div class="form-actions compact-actions">
-                <button class="primary-button" id="saveGeminiKeyBtn" type="button">Simpan API</button>
-                <button class="ghost-button" id="testGeminiBtn" type="button">Test</button>
-                <button class="ghost-button danger" id="clearGeminiKeyBtn" type="button">Hapus API</button>
+          <div class="assistant-workspace">
+            <section class="assistant-hero-card">
+              <div class="assistant-hero-copy">
+                <span class="assistant-kicker">Trading Workspace</span>
+                <h3>Ruang Asisten</h3>
+                <p>Tempat belajar, mencari materi, membaca jurnal, dan mengontrol aplikasi dengan bahasa natural.</p>
               </div>
-              <p class="form-message" id="assistantMessage" role="status"></p>
+              <div class="assistant-mode-tabs" id="assistantModeTabs" role="tablist" aria-label="Mode asisten">
+                <button class="assistant-mode-tab is-active" type="button" data-assistant-mode="coach">Coach Trading</button>
+                <button class="assistant-mode-tab" type="button" data-assistant-mode="material">Cari Materi</button>
+                <button class="assistant-mode-tab" type="button" data-assistant-mode="action">Aksi Aplikasi</button>
+              </div>
             </section>
 
-            <section class="assistant-card">
-              <h3>Insight Kebiasaan Trading</h3>
+            <section class="assistant-card assistant-chat-card assistant-room-card">
+              <div class="assistant-chat-headline">
+                <div>
+                  <span id="assistantModeLabel">Coach Trading</span>
+                  <h3>Chat Asisten</h3>
+                </div>
+                <button class="ghost-button danger" id="clearAssistantHistoryBtn" type="button">Hapus Riwayat</button>
+              </div>
+              <div class="assistant-chat-log" id="assistantChatLog" aria-live="polite"></div>
+              <div class="assistant-answer assistant-live-answer" id="assistantAnswer" hidden>Jawaban asisten akan muncul di sini.</div>
+              <div class="assistant-chat-bar">
+                <label class="assistant-chat-input" for="assistantQuestionInput">
+                  <span class="chat-attach-icon" aria-hidden="true">AI</span>
+                  <textarea id="assistantQuestionInput" rows="1" maxlength="1600" placeholder="Tanyakan apa saja tentang trading..."></textarea>
+                </label>
+                <button class="primary-button assistant-send-button" id="askAssistantBtn" type="button">Kirim</button>
+              </div>
+              <p class="assistant-note">AI bisa salah. Aplikasi tetap memvalidasi aksi penting sebelum dijalankan.</p>
+            </section>
+
+            <section class="assistant-card assistant-insight-card">
+              <div class="assistant-card-headline">
+                <div>
+                  <span>Insight Cepat</span>
+                  <h3>Kebiasaan Trading</h3>
+                </div>
+                <div class="form-actions compact-actions">
+                  <button class="primary-button" id="updateInsightBtn" type="button">Update</button>
+                  <button class="ghost-button danger" id="clearInsightBtn" type="button">Hapus</button>
+                </div>
+              </div>
               <div class="insight-box" id="insightBox">Belum ada insight. Tekan Update Insight.</div>
-              <div class="form-actions compact-actions">
-                <button class="primary-button" id="updateInsightBtn" type="button">Update Insight</button>
-                <button class="ghost-button danger" id="clearInsightBtn" type="button">Hapus Insight</button>
-              </div>
             </section>
 
-            <section class="assistant-card assistant-chat-card">
-              <h3>Tanya Asisten</h3>
-              <label class="field">
-                <span>Pertanyaan</span>
-                <textarea id="assistantQuestionInput" rows="4" maxlength="1600" placeholder="Contoh: kenapa aku sering loss dari jurnal terakhir?"></textarea>
-              </label>
-              <div class="form-actions compact-actions">
-                <button class="primary-button" id="askAssistantBtn" type="button">Tanya Asisten</button>
+            <details class="assistant-card assistant-api-settings" id="assistantApiSettings">
+              <summary>
+                <span>Pengaturan API</span>
+                <strong id="assistantApiSummary">Status koneksi AI</strong>
+              </summary>
+              <div class="assistant-api-body">
+                <label class="field">
+                  <span>Provider</span>
+                  <select id="aiProviderInput">
+                    <option value="gemini">Gemini</option>
+                    <option value="groq">Groq</option>
+                    <option value="openrouter" selected>OpenRouter</option>
+                    <option value="mistral">Mistral / Mimo</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="custom">Custom OpenAI-Compatible</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>API Key</span>
+                  <input id="geminiApiKeyInput" type="password" autocomplete="off" placeholder="Isi API key di webpage, bukan di kode">
+                </label>
+                <label class="field">
+                  <span>Model</span>
+                  <input id="geminiModelInput" type="text" value="google/gemini-2.0-flash-001" placeholder="google/gemini-2.0-flash-001">
+                </label>
+                <label class="field" hidden>
+                  <span>Base URL Custom</span>
+                  <input id="aiBaseUrlInput" type="url" autocomplete="off" placeholder="https://domain-api-kamu.com/v1/chat/completions">
+                </label>
+                <div class="form-actions compact-actions">
+                  <button class="primary-button" id="saveGeminiKeyBtn" type="button">Simpan API</button>
+                  <button class="ghost-button" id="testGeminiBtn" type="button">Test</button>
+                  <button class="ghost-button danger" id="clearGeminiKeyBtn" type="button">Hapus API</button>
+                </div>
+                <p class="form-message" id="assistantMessage" role="status"></p>
               </div>
-              <div class="assistant-answer" id="assistantAnswer">Jawaban asisten akan muncul di sini.</div>
-            </section>
+            </details>
           </div>
         </section>
 
@@ -364,20 +395,22 @@
       </main>
 
 
-      <button class="ai-chat-fab" id="aiChatToggleBtn" type="button" aria-label="Buka chat AI">💬</button>
-      <section class="ai-chat-popup" id="aiChatPopup" aria-label="Popup chat AI" hidden>
+      <button class="ai-chat-fab" id="aiChatToggleBtn" type="button" aria-label="Buka quick assistant">AI</button>
+      <section class="ai-chat-popup" id="aiChatPopup" aria-label="Quick assistant" hidden>
+        <div class="ai-chat-grabber" aria-hidden="true"></div>
         <div class="ai-chat-head">
           <div>
-            <span>AI Popup</span>
-            <h2>Chat Materi</h2>
+            <span>Asisten Quick</span>
+            <h2>Bantu cepat</h2>
+            <p>Untuk aksi panjang, buka Ruang Asisten.</p>
           </div>
           <button class="icon-button close-button" id="closeAiChatBtn" type="button" aria-label="Tutup chat AI">×</button>
         </div>
         <div class="ai-chat-body">
-          <div class="assistant-answer ai-popup-answer" id="aiPopupAnswer">Tanya materi, jurnal, statistik, atau pertanyaan umum di sini.</div>
+          <div class="assistant-answer ai-popup-answer" id="aiPopupAnswer">Tulis perintah singkat, misalnya: cari materi liquidity sweep.</div>
           <label class="field ai-popup-field">
             <span>Pertanyaan</span>
-            <textarea id="aiPopupQuestionInput" rows="3" maxlength="1600" placeholder="Tulis pertanyaan ke AI..."></textarea>
+            <textarea id="aiPopupQuestionInput" rows="2" maxlength="1600" placeholder="Tulis cepat ke AI..."></textarea>
           </label>
           <div class="form-actions compact-actions ai-popup-actions">
             <button class="ghost-button danger" id="clearAiPopupBtn" type="button">Hapus Chat</button>
@@ -577,7 +610,7 @@
       </div>
     </dialog>
 
-    <script src="./jszip.min.js?v=20260518githubPageWebAI1" defer></script>
-    <script src="./app.js?v=20260518githubPageWebAI1" defer></script>
+    <script src="./jszip.min.js?v=20260519TradingWorkspaceAI1" defer></script>
+    <script src="./app.js?v=20260519TradingWorkspaceAI1" defer></script>
   </body>
 </html>

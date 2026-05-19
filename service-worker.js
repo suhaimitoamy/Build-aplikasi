@@ -1,4 +1,4 @@
-const CACHE_VERSION = "20260518githubPageWebAI1";
+const CACHE_VERSION = "20260519TradingWorkspaceAI1";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();

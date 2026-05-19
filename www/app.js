@@ -5,10 +5,12 @@ const SETTINGS_KEY = "tradingLibraryManager.settings.v1";
 const DB_NAME = "tradingLibraryManager.files";
 const DB_VERSION = 1;
 const FILE_STORE = "files";
-const APP_VERSION = "20260518githubPageWebAI1";
+const APP_VERSION = "20260519TradingWorkspaceAI1";
 const JOURNAL_STORAGE_KEY = "tradingLibraryManager.journals.v1";
 const ASSISTANT_SETTINGS_KEY = "tradingLibraryManager.assistantSettings.v1";
 const INSIGHT_CACHE_KEY = "tradingLibraryManager.insightCache.v1";
+const ASSISTANT_CHAT_KEY = "tradingLibraryManager.assistantChat.v2";
+const ASSISTANT_MAX_HISTORY = 80;
 const PIN_KEY = "tradingLibraryManager.pinHash.v1";
 const BACKUP_VERSION = "1.0";
 const SUPPORTED_SCAN_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif", "svg", "mp4", "mkv", "webm", "ogg", "mov", "m4v", "3gp", "avi", "pdf", "doc", "docx", "md", "txt", "xls", "xlsx", "csv", "ppt", "pptx"]);
@@ -119,6 +121,12 @@ const dom = {
   askAssistantBtn: document.querySelector("#askAssistantBtn"),
   assistantQuestionInput: document.querySelector("#assistantQuestionInput"),
   assistantAnswer: document.querySelector("#assistantAnswer"),
+  assistantChatLog: document.querySelector("#assistantChatLog"),
+  assistantModeTabs: document.querySelector("#assistantModeTabs"),
+  assistantModeButtons: document.querySelectorAll(".assistant-mode-tab"),
+  assistantModeLabel: document.querySelector("#assistantModeLabel"),
+  clearAssistantHistoryBtn: document.querySelector("#clearAssistantHistoryBtn"),
+  assistantApiSummary: document.querySelector("#assistantApiSummary"),
   assistantMessage: document.querySelector("#assistantMessage"),
   aiChatToggleBtn: document.querySelector("#aiChatToggleBtn"),
   aiChatPopup: document.querySelector("#aiChatPopup"),
@@ -234,6 +242,9 @@ const state = {
   nativeThumbnailObserver: null,
   nativeThumbnailRequested: new Set(),
   pendingAiAction: null,
+  assistantChatHistory: [],
+  assistantMode: "coach",
+  aiLastMaterialResults: [],
   scanProgress: null
 };
 
@@ -243,6 +254,7 @@ async function boot() {
   state.items = normalizeItems(loadItems());
   state.journals = normalizeJournals(loadJournals());
   loadAssistantSettings();
+  state.assistantChatHistory = loadAssistantChatHistory();
   loadSettings();
   fillSelect(dom.categoryInput, categories);
   fillSelect(dom.statusInput, statuses);
@@ -344,6 +356,14 @@ function bindEvents() {
   dom.updateInsightBtn?.addEventListener("click", updateInsightCache);
   dom.clearInsightBtn?.addEventListener("click", clearInsightCache);
   dom.askAssistantBtn?.addEventListener("click", askAssistant);
+  dom.clearAssistantHistoryBtn?.addEventListener("click", clearAssistantHistory);
+  dom.assistantModeButtons?.forEach((button) => button.addEventListener("click", () => setAssistantMode(button.dataset.assistantMode || "coach")));
+  dom.assistantQuestionInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      askAssistant();
+    }
+  });
   dom.aiChatToggleBtn?.addEventListener("click", toggleAiChatPopup);
   dom.closeAiChatBtn?.addEventListener("click", closeAiChatPopup);
   dom.askAiPopupBtn?.addEventListener("click", askAiPopup);
@@ -2337,20 +2357,15 @@ async function renderFullscreenContent(item) {
   }
 
   if (documentType === "Markdown") {
-    const article = document.createElement("article");
-    article.className = "fullscreen-markdown";
-
-    const pre = document.createElement("pre");
     try {
-      pre.textContent = await readItemText(item) || "Markdown kosong.";
+      const raw = await readItemText(item) || "Markdown kosong.";
+      const reader = createProfessionalReader(item, raw, { sourceType: "Markdown" });
+      dom.fullscreenStage.classList.add("is-reader-stage");
+      dom.fullscreenStage.replaceChildren(reader);
+      setupReadableCompletionTracking(reader, item);
     } catch {
-      pre.textContent = "Markdown belum bisa dimuat.";
+      renderFullscreenError("Markdown belum bisa dimuat.");
     }
-
-    article.append(pre);
-    dom.fullscreenStage.classList.add("is-reader-stage");
-    dom.fullscreenStage.replaceChildren(article);
-    setupReadableCompletionTracking(article, item);
     return;
   }
 
@@ -2829,6 +2844,142 @@ function renderFullscreenDocumentSummary(item) {
   actions.append(downloadButton, openButton);
   summary.append(mark, title, meta, actions);
   dom.fullscreenStage.replaceChildren(summary);
+}
+
+function createProfessionalReader(item, rawText, options = {}) {
+  const sourceType = options.sourceType || getDocumentType(item) || "Dokumen";
+  const shell = document.createElement("article");
+  shell.className = "professional-reader fullscreen-markdown";
+
+  const tabs = document.createElement("div");
+  tabs.className = "reader-tabs";
+  const originalTab = document.createElement("button");
+  originalTab.type = "button";
+  originalTab.className = "reader-tab";
+  originalTab.textContent = "Baca Asli";
+  const cleanTab = document.createElement("button");
+  cleanTab.type = "button";
+  cleanTab.className = "reader-tab is-active";
+  cleanTab.textContent = "Versi AI Rapi";
+  tabs.append(originalTab, cleanTab);
+
+  const head = document.createElement("header");
+  head.className = "reader-head";
+  const kicker = document.createElement("span");
+  kicker.textContent = sourceType;
+  const title = document.createElement("h1");
+  title.textContent = cleanReaderTitle(item, rawText);
+  const meta = document.createElement("p");
+  meta.textContent = `${sourceType} • ${formatDate(item.updatedAt || item.createdAt)} • ${estimateReadTime(rawText)} menit baca`;
+  head.append(kicker, title, meta);
+
+  const body = document.createElement("div");
+  body.className = "reader-body";
+  const original = document.createElement("pre");
+  original.className = "reader-original";
+  original.textContent = rawText || "Dokumen kosong.";
+  original.hidden = true;
+  const clean = renderReadableMarkdown(rawText || "Dokumen kosong.");
+  clean.className = "reader-clean";
+  body.append(clean, original);
+
+  originalTab.addEventListener("click", () => {
+    original.hidden = false;
+    clean.hidden = true;
+    originalTab.classList.add("is-active");
+    cleanTab.classList.remove("is-active");
+  });
+  cleanTab.addEventListener("click", () => {
+    original.hidden = true;
+    clean.hidden = false;
+    cleanTab.classList.add("is-active");
+    originalTab.classList.remove("is-active");
+  });
+
+  shell.append(tabs, head, body);
+  return shell;
+}
+
+function cleanReaderTitle(item, rawText) {
+  const firstHeading = String(rawText || "").split(/\n/).map((line) => line.trim()).find((line) => /^#{1,2}\s+/.test(line));
+  return (firstHeading ? firstHeading.replace(/^#{1,6}\s+/, "") : item.title || getDocumentName(item) || "Materi").trim();
+}
+
+function estimateReadTime(text) {
+  const words = String(text || "").trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(1, Math.ceil(words / 180));
+}
+
+function renderReadableMarkdown(rawText) {
+  const container = document.createElement("div");
+  const lines = String(rawText || "").replace(/\r\n/g, "\n").split("\n");
+  let paragraph = [];
+  let list = null;
+  const flushParagraph = () => {
+    const text = paragraph.join(" ").trim();
+    paragraph = [];
+    if (!text) return;
+    const p = document.createElement("p");
+    p.textContent = stripInlineMarkdown(text);
+    container.append(p);
+  };
+  const flushList = () => {
+    if (list) {
+      container.append(list);
+      list = null;
+    }
+  };
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+    const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = Math.min(3, heading[1].length + 1);
+      const h = document.createElement(`h${level}`);
+      h.textContent = stripInlineMarkdown(heading[2]);
+      container.append(h);
+      return;
+    }
+    if (/^>\s+/.test(trimmed)) {
+      flushParagraph();
+      flushList();
+      const quote = document.createElement("blockquote");
+      quote.textContent = stripInlineMarkdown(trimmed.replace(/^>\s+/, ""));
+      container.append(quote);
+      return;
+    }
+    const bullet = trimmed.match(/^[-*•]\s+(.+)$/) || trimmed.match(/^\d+[.)]\s+(.+)$/);
+    if (bullet) {
+      flushParagraph();
+      if (!list) list = document.createElement("ul");
+      const li = document.createElement("li");
+      li.textContent = stripInlineMarkdown(bullet[1]);
+      list.append(li);
+      return;
+    }
+    paragraph.push(trimmed);
+  });
+  flushParagraph();
+  flushList();
+  return container;
+}
+
+function stripInlineMarkdown(text) {
+  return String(text || "")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/_([^_]+)_/g, "$1")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
+    .trim();
 }
 
 function renderFullscreenError(message) {
@@ -3689,27 +3840,67 @@ async function getFileBlob(item) {
 }
 
 async function renderDocxReader(item) {
-  const shell = document.createElement("article");
-  shell.className = "offline-reader docx-reader";
-  const title = document.createElement("h3");
-  title.textContent = getDocumentName(item);
   const blob = await getFileBlob(item);
   if (!blob) return renderFullscreenError("Word belum bisa dimuat.");
+  const shell = document.createElement("article");
+  shell.className = "professional-reader docx-reader";
+
+  const tabs = document.createElement("div");
+  tabs.className = "reader-tabs";
+  const originalTab = document.createElement("button");
+  originalTab.type = "button";
+  originalTab.className = "reader-tab";
+  originalTab.textContent = "Baca Asli";
+  const cleanTab = document.createElement("button");
+  cleanTab.type = "button";
+  cleanTab.className = "reader-tab is-active";
+  cleanTab.textContent = "Versi AI Rapi";
+  tabs.append(originalTab, cleanTab);
+
+  const head = document.createElement("header");
+  head.className = "reader-head";
+  const kicker = document.createElement("span");
+  kicker.textContent = "Word";
+  const title = document.createElement("h1");
+  title.textContent = item.title || getDocumentName(item);
+  const meta = document.createElement("p");
+  meta.textContent = `Word • ${formatDate(item.updatedAt || item.createdAt)}`;
+  head.append(kicker, title, meta);
+
+  const body = document.createElement("div");
+  body.className = "reader-body";
+  const original = document.createElement("pre");
+  original.className = "reader-original";
+  original.textContent = item.documentText || "Word belum bisa dibaca sebagai teks mentah.";
+  original.hidden = true;
+  const clean = document.createElement("div");
+  clean.className = "reader-clean docx-body";
   try {
-    const html = await extractDocxHtml(blob);
-    const body = document.createElement("div");
-    body.className = "docx-body";
-    body.innerHTML = html || `<pre>${escapeHtml(item.documentText || "Word kosong.")}</pre>`;
-    shell.append(title, body);
+    clean.innerHTML = await extractDocxHtml(blob) || `<p>${escapeHtml(item.documentText || "Word kosong.")}</p>`;
   } catch {
-    const pre = document.createElement("pre");
-    pre.textContent = item.documentText || "Word belum bisa dibaca di perangkat ini.";
-    shell.append(title, pre);
+    clean.append(renderReadableMarkdown(item.documentText || "Word belum bisa dibaca di perangkat ini."));
   }
+  body.append(clean, original);
+
+  originalTab.addEventListener("click", () => {
+    original.hidden = false;
+    clean.hidden = true;
+    originalTab.classList.add("is-active");
+    cleanTab.classList.remove("is-active");
+  });
+  cleanTab.addEventListener("click", () => {
+    original.hidden = true;
+    clean.hidden = false;
+    cleanTab.classList.add("is-active");
+    originalTab.classList.remove("is-active");
+  });
+
+  shell.append(tabs, head, body);
   dom.fullscreenStage.classList.add("is-reader-stage");
   dom.fullscreenStage.replaceChildren(shell);
   setupReadableCompletionTracking(shell, item);
 }
+
 
 function escapeHtml(value) {
   return String(value || "").replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[char]));
@@ -4394,7 +4585,18 @@ function renderAssistantPanel() {
   if (document.activeElement !== dom.geminiModelInput) dom.geminiModelInput.value = state.geminiModel || getDefaultModelForProvider(state.aiProvider);
   if (dom.aiBaseUrlInput && document.activeElement !== dom.aiBaseUrlInput) dom.aiBaseUrlInput.value = state.aiBaseUrl || "";
   syncProviderFields();
+  renderAssistantModeTabs();
+  renderAssistantChatLog();
   renderInsightBox();
+  updateAssistantApiSummary();
+}
+
+function updateAssistantApiSummary() {
+  if (!dom.assistantApiSummary) return;
+  const provider = getProviderLabel(state.aiProvider || dom.aiProviderInput?.value || "openrouter");
+  const model = state.geminiModel || dom.geminiModelInput?.value || getDefaultModelForProvider(state.aiProvider);
+  const status = normalizeApiKey(state.geminiApiKey || dom.geminiApiKeyInput?.value || "") ? "Terhubung" : "Belum tersambung";
+  dom.assistantApiSummary.textContent = `${provider} • ${model || "default"} • ${status}`;
 }
 
 function syncProviderFields() {
@@ -4630,28 +4832,192 @@ async function testGeminiConnection() {
   }
 }
 
-async function askAssistant() {
-  const question = dom.assistantQuestionInput.value.trim();
-  await runAssistantQuestion(question, dom.assistantAnswer);
+function loadAssistantChatHistory() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ASSISTANT_CHAT_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((message) => message && ["user", "assistant"].includes(message.role)).slice(-ASSISTANT_MAX_HISTORY);
+  } catch {
+    return [];
+  }
 }
 
-async function runAssistantQuestion(question, targetElement) {
+function saveAssistantChatHistory() {
+  try {
+    localStorage.setItem(ASSISTANT_CHAT_KEY, JSON.stringify(state.assistantChatHistory.slice(-ASSISTANT_MAX_HISTORY)));
+  } catch {}
+}
+
+function setAssistantMode(mode = "coach") {
+  const nextMode = ["coach", "material", "action"].includes(mode) ? mode : "coach";
+  state.assistantMode = nextMode;
+  renderAssistantModeTabs();
+}
+
+function renderAssistantModeTabs() {
+  const labels = {
+    coach: "Coach Trading",
+    material: "Cari Materi",
+    action: "Aksi Aplikasi"
+  };
+  dom.assistantModeButtons?.forEach((button) => {
+    const isActive = (button.dataset.assistantMode || "coach") === state.assistantMode;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-selected", String(isActive));
+  });
+  if (dom.assistantModeLabel) dom.assistantModeLabel.textContent = labels[state.assistantMode] || labels.coach;
+  if (dom.assistantQuestionInput) {
+    const placeholders = {
+      coach: "Tanya evaluasi trading, jurnal, atau psikologi trading...",
+      material: "Cari atau buka materi, misalnya: buka materi liquidity sweep...",
+      action: "Tulis perintah aplikasi, misalnya: arsipkan video lama..."
+    };
+    dom.assistantQuestionInput.placeholder = placeholders[state.assistantMode] || placeholders.coach;
+  }
+}
+
+function clearAssistantHistory() {
+  state.assistantChatHistory = [];
+  saveAssistantChatHistory();
+  renderAssistantChatLog();
+}
+
+function appendAssistantChat(role, text, extra = {}) {
+  const message = {
+    id: createId(),
+    role,
+    text: String(text || ""),
+    createdAt: new Date().toISOString(),
+    ...extra
+  };
+  state.assistantChatHistory.push(message);
+  state.assistantChatHistory = state.assistantChatHistory.slice(-ASSISTANT_MAX_HISTORY);
+  saveAssistantChatHistory();
+  renderAssistantChatLog();
+  return message;
+}
+
+function updateAssistantChatMessage(id, text, extra = {}) {
+  const index = state.assistantChatHistory.findIndex((message) => message.id === id);
+  if (index < 0) {
+    appendAssistantChat("assistant", text, extra);
+    return;
+  }
+  state.assistantChatHistory[index] = { ...state.assistantChatHistory[index], text: String(text || ""), ...extra };
+  saveAssistantChatHistory();
+  renderAssistantChatLog();
+}
+
+function renderAssistantChatLog() {
+  if (!dom.assistantChatLog) return;
+  dom.assistantChatLog.replaceChildren();
+  if (!state.assistantChatHistory.length) {
+    const empty = document.createElement("div");
+    empty.className = "assistant-chat-empty";
+    empty.innerHTML = `
+      <strong>Mulai dari sini.</strong>
+      <span>Gunakan Coach Trading, Cari Materi, atau Aksi Aplikasi sesuai kebutuhan.</span>
+    `;
+    dom.assistantChatLog.append(empty);
+  } else {
+    const fragment = document.createDocumentFragment();
+    state.assistantChatHistory.forEach((message) => fragment.append(createAssistantMessageNode(message)));
+    dom.assistantChatLog.append(fragment);
+  }
+  if (state.pendingAiAction?.surface === "assistant") {
+    dom.assistantChatLog.append(createAiActionConfirmNode(state.pendingAiAction));
+  }
+  dom.assistantChatLog.scrollTop = dom.assistantChatLog.scrollHeight;
+}
+
+function createAssistantMessageNode(message) {
+  const bubble = document.createElement("article");
+  bubble.className = `assistant-message ${message.role === "user" ? "is-user" : "is-assistant"}`;
+
+  const label = document.createElement("span");
+  label.className = "assistant-message-label";
+  label.textContent = message.role === "user" ? "Anda" : "Asisten";
+
+  const text = document.createElement("div");
+  text.className = "assistant-message-text";
+  text.textContent = message.text || "";
+
+  const time = document.createElement("small");
+  time.textContent = formatMessageTime(message.createdAt);
+
+  bubble.append(label, text);
+  if (message.kind === "materials" && Array.isArray(message.itemIds)) {
+    bubble.append(createMaterialResultList(message.itemIds));
+  }
+  bubble.append(time);
+  return bubble;
+}
+
+function formatMessageTime(value) {
+  try {
+    return new Date(value || Date.now()).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+}
+
+function createMaterialResultList(itemIds = []) {
+  const wrap = document.createElement("div");
+  wrap.className = "assistant-material-results";
+  const items = itemIds.map((id) => state.items.find((item) => item.id === id)).filter(Boolean).slice(0, 8);
+  items.forEach((item, index) => {
+    const row = document.createElement("div");
+    row.className = "assistant-material-row";
+    const info = document.createElement("span");
+    info.textContent = `${index + 1}. ${item.title} • ${getItemFileType(item)} • ${item.status}`;
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "small-button";
+    open.textContent = "Buka";
+    open.addEventListener("click", () => openAiMaterialItem(item));
+    row.append(info, open);
+    wrap.append(row);
+  });
+  return wrap;
+}
+
+function openAiMaterialItem(item) {
+  if (!item) return;
+  if (canOpenFullscreen(item)) {
+    showFullscreenViewer(item);
+    return;
+  }
+  openForm(item.id);
+}
+
+async function askAssistant() {
+  const question = dom.assistantQuestionInput?.value.trim() || "";
+  if (!question) return;
+  if (dom.assistantQuestionInput) dom.assistantQuestionInput.value = "";
+  await processAssistantInput(question, "assistant");
+}
+
+async function runAssistantQuestion(question, targetElement, options = {}) {
   saveGeminiSettings();
   state.geminiApiKey = normalizeApiKey(state.geminiApiKey || dom.geminiApiKeyInput?.value || "");
   if (!question) return "";
   if (!state.geminiApiKey) {
-    if (targetElement) targetElement.textContent = "Isi API key dulu di Pengaturan API.";
-    return "";
+    const message = "Isi API key dulu di Pengaturan API.";
+    if (targetElement) targetElement.textContent = message;
+    return message;
   }
   refreshInsightCache({ renderPanel: state.view === "assistant" });
   if (targetElement) targetElement.textContent = "Menganalisis dari materi, jurnal, statistik, lalu pengetahuan AI jika perlu...";
   const context = await getRelevantLocalContext(question);
   const prompt = `Kamu adalah asisten trading pribadi di aplikasi Trading Library Manager. Jawab dalam bahasa Indonesia, ringkas, praktis, dan edukatif. Jangan memberi sinyal pasti buy/sell.
 
+Mode aktif: ${options.mode || state.assistantMode || "coach"}
+
 Aturan sumber:
 1. Prioritaskan Sumber Lokal dari materi terupload, jurnal, statistik, catatan file, dan insight lokal.
-2. Jika Sumber Lokal tidak cukup, boleh jawab memakai pengetahuan umum AI/Gemini.
-3. Di akhir jawaban tulis sumber secara jelas, misalnya "Sumber: materi terupload", "Sumber: jurnal trading", "Sumber: statistik", atau "Sumber: pengetahuan AI/Gemini, bukan dari materi/jurnal pengguna".
+2. Jika Sumber Lokal tidak cukup, boleh jawab memakai pengetahuan umum AI.
+3. Jangan menyalin isi materi panjang ke chat. Untuk daftar materi atau isi materi penuh, arahkan aplikasi untuk membuka daftar/viewer.
+4. Di akhir jawaban tulis sumber secara jelas, misalnya "Sumber: materi terupload", "Sumber: jurnal trading", "Sumber: statistik", atau "Sumber: pengetahuan AI, bukan dari materi/jurnal pengguna".
 
 Insight kebiasaan lokal:
 ${state.insightCache?.text || "Belum ada insight."}
@@ -4667,75 +5033,38 @@ ${question}`;
   } catch (error) {
     const message = `Gagal memanggil ${getProviderLabel(state.aiProvider)}: ${error.message || "API error"}`;
     if (targetElement) targetElement.textContent = message;
-    return "";
+    return message;
   }
 }
 
-async function getRelevantLocalContext(query) {
-  const terms = query.toLowerCase().split(/\s+/).filter((word) => word.length > 2).slice(0, 12);
-  const scoredItems = [];
-
-  for (const item of state.items) {
-    const metaText = [item.title, item.type, item.category, item.status, item.collection, item.notes, item.code, item.mediaName, item.documentType, item.source === "storage-scan" ? "hasil scan storage HP" : "", ...(item.tags || [])].join(" ");
-    let text = metaText;
-    let score = scoreText(metaText, terms);
-    if (score > 0 && isDocumentItem(item) && item.source !== "storage-scan" && getDocumentType(item) !== "PDF") {
-      try {
-        const docText = await readItemText(item);
-        if (docText) {
-          const clipped = docText.slice(0, 4000);
-          text = `${metaText}\n${clipped}`;
-          score += scoreText(clipped, terms);
-        }
-      } catch {}
-    }
-    if (score > 0) scoredItems.push({ item, score, text });
+async function processAssistantInput(question, surface = "assistant") {
+  const isAssistantSurface = surface === "assistant";
+  let pendingId = "";
+  if (isAssistantSurface) {
+    appendAssistantChat("user", question);
+    pendingId = appendAssistantChat("assistant", "Memproses perintah...", { transient: true }).id;
+  } else {
+    renderAiPopupText("Memproses perintah...");
   }
 
-  const itemRows = scoredItems
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 6)
-    .map(({ item, text }) => `Materi/File: ${item.title} | ${item.category} | ${String(text || "").slice(0, 1200)}`);
+  const actionResult = await handleAiActionCommand(question, { surface });
+  if (actionResult) {
+    state.aiPopupLastQuestion = question;
+    state.aiPopupLastAnswer = actionResult.text || "";
+    if (isAssistantSurface && pendingId) updateAssistantChatMessage(pendingId, actionResult.text || "Selesai.", actionResult.extra || {});
+    if (!isAssistantSurface && dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = true;
+    return actionResult.text || "";
+  }
 
-  const journalRows = state.journals.map((journal) => ({ journal, score: scoreText([journal.title, journal.market, journal.setup, journal.plan, journal.evaluation, journal.mistakes, journal.lessons, journal.emotion].join(" "), terms) }))
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 8)
-    .map(({ journal }) => `Jurnal: ${journal.date} ${journal.market} ${journal.setup} ${journal.result} ${getJournalProfitLossText(journal)} | Catatan: ${journal.plan} | Evaluasi: ${journal.evaluation} | Kesalahan: ${journal.mistakes} | Pelajaran: ${journal.lessons} | Emosi: ${journal.emotion}`);
-
-  const stats = calculateJournalStats(state.journals);
-  const statsRow = `Statistik: total jurnal ${state.journals.length}, win rate ${stats.winRate}%, profit ${formatTradeAmount(stats.totalProfit)}, loss ${formatTradeAmount(stats.totalLoss)}, net P/L ${formatTradeAmount(stats.netProfit)}.`;
-  const localRows = [...journalRows, ...itemRows];
-  return {
-    hasLocalContext: localRows.length > 0,
-    text: localRows.length
-      ? `Sumber Lokal relevan:\n${statsRow}\n${localRows.join("\n")}`
-      : `Sumber Lokal relevan:\n${statsRow}\nTidak ada materi/jurnal yang cocok langsung dengan pertanyaan. Jika menjawab di luar data aplikasi, tulis sumber sebagai pengetahuan AI/Gemini.`
-  };
-}
-
-function scoreText(text, terms) {
-  const value = String(text || "").toLowerCase();
-  return terms.reduce((sum, term) => sum + (value.includes(term) ? 1 : 0), 0);
-}
-
-function toggleAiChatPopup() {
-  if (!dom.aiChatPopup) return;
-  if (dom.aiChatPopup.hidden) openAiChatPopup();
-  else closeAiChatPopup();
-}
-
-function openAiChatPopup() {
-  if (!dom.aiChatPopup) return;
-  dom.aiChatPopup.hidden = false;
-  dom.aiChatToggleBtn?.classList.add("is-active");
-  requestAnimationFrame(() => dom.aiPopupQuestionInput?.focus());
-}
-
-function closeAiChatPopup() {
-  if (!dom.aiChatPopup) return;
-  dom.aiChatPopup.hidden = true;
-  dom.aiChatToggleBtn?.classList.remove("is-active");
+  const answer = await runAssistantQuestion(question, null, { mode: state.assistantMode });
+  state.aiPopupLastQuestion = question;
+  state.aiPopupLastAnswer = answer;
+  if (isAssistantSurface && pendingId) updateAssistantChatMessage(pendingId, answer || "Tidak ada jawaban.");
+  if (!isAssistantSurface) {
+    renderAiPopupText(answer || "Tidak ada jawaban.");
+    if (dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = !answer;
+  }
+  return answer;
 }
 
 async function askAiPopup() {
@@ -4743,94 +5072,215 @@ async function askAiPopup() {
   if (!question) return;
   if (dom.aiPopupQuestionInput) dom.aiPopupQuestionInput.value = "";
   if (dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = true;
-
-  const localResult = handleAiActionCommand(question);
-  if (localResult) {
-    state.aiPopupLastQuestion = question;
-    state.aiPopupLastAnswer = localResult.text || "";
-    if (dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = true;
-    return;
-  }
-
-  const answer = await runAssistantQuestion(question, dom.aiPopupAnswer);
-  state.aiPopupLastQuestion = question;
-  state.aiPopupLastAnswer = answer;
-  if (dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = !answer;
+  await processAssistantInput(question, "popup");
 }
 
-function clearAiPopupChat() {
-  state.aiPopupLastQuestion = "";
-  state.aiPopupLastAnswer = "";
-  state.pendingAiAction = null;
-  if (dom.aiPopupQuestionInput) dom.aiPopupQuestionInput.value = "";
-  if (dom.aiPopupAnswer) {
-    dom.aiPopupAnswer.replaceChildren();
-    dom.aiPopupAnswer.textContent = "Tanya materi, jurnal, statistik, atau pertanyaan umum di sini.";
-  }
-  if (dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = true;
+async function handleAiActionCommand(question, options = {}) {
+  const surface = options.surface || "popup";
+  const localPlan = buildLocalAiActionPlan(question);
+  if (localPlan) return executeAiActionPlan(localPlan, question, surface);
+
+  if (!shouldUseRemoteActionPlanner(question, surface)) return null;
+  const remotePlan = await interpretAiActionPlan(question);
+  if (!remotePlan || !remotePlan.action || remotePlan.action === "answer") return null;
+  return executeAiActionPlan(remotePlan, question, surface);
 }
 
-function handleAiActionCommand(question) {
-  const normalized = question.toLowerCase();
-  if (/^(hapus|reset|bersihkan)\s+(chat|riwayat)/i.test(normalized)) {
-    clearAiPopupChat();
-    return { text: "Riwayat chat AI popup dihapus." };
+function buildLocalAiActionPlan(question) {
+  const normalized = normalizeCommandText(question);
+  if (!normalized) return null;
+
+  if (/\b(hapus|reset|bersihkan)\b.*\b(chat|riwayat)\b/i.test(normalized)) return { action: "clear_chat" };
+
+  const openNumber = normalized.match(/\b(?:buka|open|lihat)\b.*\b(?:nomor|no|urutan)?\s*(\d{1,3})\b/i);
+  if (openNumber && state.aiLastMaterialResults.length) {
+    return { action: "open_material", resultIndex: Number(openNumber[1]) - 1 };
   }
 
-  if (/^(cari|tampilkan|lihat|daftar)/i.test(normalized) && /(file|materi|video|gambar|dokumen|scan)/i.test(normalized)) {
-    const matches = findItemsForAiCommand(question).slice(0, 25);
-    const text = matches.length
-      ? `Ditemukan ${matches.length} item:
-${matches.map((item, index) => `${index + 1}. ${item.title} • ${getItemFileType(item)} • ${item.status}${item.source === "storage-scan" ? " • hasil scan" : ""}`).join("\n")}`
-      : "Tidak ada file/materi yang cocok.";
-    renderAiPopupText(text);
+  if (/(tambah|buat|simpan).{0,18}materi/i.test(normalized)) return { action: "add_material", raw: question };
+
+  const wantsSearch = /\b(cari|carikan|temukan|tampilkan|lihat|daftar|list|buka|open)\b/i.test(normalized)
+    && /\b(file|materi|video|gambar|dokumen|pdf|word|markdown|md|catatan|library|isi)\b/i.test(normalized);
+  if (wantsSearch) return { action: /\b(buka|open|isi)\b/i.test(normalized) ? "open_material" : "search_materials", query: question };
+
+  if (/\b(hapus|delete|remove|buang|hilangkan|singkirkan)\b/i.test(normalized)) return { action: "delete_materials", query: question };
+  if (/\b(arsip|arsipkan|arsipin|sembunyikan)\b/i.test(normalized)) return { action: "archive_materials", query: question };
+
+  const status = detectStatusFromCommand(normalized);
+  if ((/\b(ubah|ganti|set|jadikan|tandai|mark|selesaikan)\b/i.test(normalized) || status) && /\b(status|selesai|dibaca|ditonton|dipelajari|dipakai|revisi)\b/i.test(normalized)) {
+    if (status) return { action: "update_status", query: question, status };
+  }
+
+  if (state.assistantMode === "material") return { action: "search_materials", query: question };
+  return null;
+}
+
+function detectStatusFromCommand(normalized) {
+  const lower = String(normalized || "").toLowerCase();
+  if (/\b(selesai|sudah dibaca|sudah ditonton|tuntas)\b/.test(lower)) return "Selesai";
+  if (/\b(belum dibaca|belum ditonton|belum selesai)\b/.test(lower)) return "Belum dibaca";
+  if (/\b(dipelajari|sedang belajar)\b/.test(lower)) return "Dipelajari";
+  if (/\b(dipakai|terpakai|gunakan)\b/.test(lower)) return "Dipakai";
+  if (/\b(revisi|perlu revisi|benahi)\b/.test(lower)) return "Perlu revisi";
+  return statuses.find((entry) => lower.includes(entry.toLowerCase())) || "";
+}
+
+function normalizeCommandText(value) {
+  return String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function shouldUseRemoteActionPlanner(question, surface) {
+  if (!state.geminiApiKey && !dom.geminiApiKeyInput?.value.trim()) return false;
+  const normalized = normalizeCommandText(question);
+  if (state.assistantMode === "action" || state.assistantMode === "material") return true;
+  if (surface === "popup" && /\b(tolong|coba|bantu|mau|ingin|hapus|buang|arsip|sembunyi|ubah|ganti|tandai|buka|cari|daftar|materi|file|status)\b/i.test(normalized)) return true;
+  return false;
+}
+
+async function interpretAiActionPlan(question) {
+  try {
+    saveGeminiSettings(false);
+    state.geminiApiKey = normalizeApiKey(state.geminiApiKey || dom.geminiApiKeyInput?.value || "");
+    const prompt = `Tugasmu hanya menerjemahkan perintah user Indonesia menjadi JSON aksi aplikasi Trading Library Manager.
+Jangan jawab dengan markdown. Jangan beri penjelasan. Balas hanya JSON valid.
+
+Aksi yang boleh:
+- answer: jika ini pertanyaan biasa, bukan aksi aplikasi
+- search_materials: cari/tampilkan daftar materi/file
+- open_material: buka materi/file penuh di viewer aplikasi
+- add_material: tambah materi markdown baru
+- delete_materials: hapus materi/file dari aplikasi
+- archive_materials: arsipkan materi/file
+- update_status: ubah status materi/file
+- clear_chat: hapus riwayat chat
+
+Status yang boleh: ${statuses.join(", ")}
+JSON schema:
+{"action":"answer|search_materials|open_material|add_material|delete_materials|archive_materials|update_status|clear_chat","query":"kata target untuk dicari","status":"","title":"","body":"","response":"kalimat singkat untuk user"}
+
+User: ${question}`;
+    const raw = await callAI([{ text: prompt }]);
+    return sanitizeAiActionPlan(parseJsonFromText(raw));
+  } catch {
+    return null;
+  }
+}
+
+function parseJsonFromText(text) {
+  const raw = String(text || "").trim();
+  try { return JSON.parse(raw); } catch {}
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try { return JSON.parse(match[0]); } catch { return null; }
+}
+
+function sanitizeAiActionPlan(plan) {
+  if (!plan || typeof plan !== "object") return null;
+  const allowed = new Set(["answer", "search_materials", "open_material", "add_material", "delete_materials", "archive_materials", "update_status", "clear_chat"]);
+  const action = String(plan.action || "answer").trim().toLowerCase();
+  if (!allowed.has(action)) return null;
+  const status = statuses.includes(plan.status) ? plan.status : detectStatusFromCommand(`${plan.status || ""} ${plan.query || ""}`);
+  return {
+    action,
+    query: String(plan.query || "").trim(),
+    status,
+    title: String(plan.title || "").trim(),
+    body: String(plan.body || "").trim(),
+    response: String(plan.response || "").trim()
+  };
+}
+
+async function executeAiActionPlan(plan, originalQuestion, surface = "popup") {
+  const action = plan.action;
+  if (action === "clear_chat") {
+    if (surface === "assistant") clearAssistantHistory(); else clearAiPopupChat();
+    const text = "Riwayat chat dibersihkan.";
+    if (surface === "popup") renderAiPopupText(text);
     return { text };
   }
 
-  if (/^(tambah|buat|simpan)\s+materi/i.test(normalized)) {
-    const created = createMaterialFromAiCommand(question);
+  if (action === "add_material") {
+    const created = createMaterialFromAiCommand(plan.raw || originalQuestion, plan);
     const text = created ? `Materi baru dibuat: ${created.title}` : "Format: tambah materi: judul | isi materi";
-    renderAiPopupText(text);
+    if (surface === "popup") renderAiPopupText(text);
     return { text };
   }
 
-  if (/\b(hapus|delete|remove)\b/i.test(normalized) && /(file|materi|video|gambar|dokumen|pdf|word|markdown|excel|xls|csv|powerpoint|ppt|scan|semua)/i.test(normalized)) {
-    const matches = findItemsForAiCommand(question);
-    showAiActionConfirmation({
-      type: "delete",
-      ids: matches.map((item) => item.id),
-      title: "Konfirmasi hapus",
-      message: matches.length ? `Ditemukan ${matches.length} item. Hapus dari aplikasi?` : "Tidak ada item yang cocok untuk dihapus."
-    });
-    return { text: matches.length ? `Menunggu konfirmasi hapus ${matches.length} item.` : "Tidak ada item yang cocok untuk dihapus." };
+  if (action === "search_materials" || action === "open_material") {
+    const matches = resolveAiMaterialMatches(plan.query || originalQuestion, plan);
+    state.aiLastMaterialResults = matches.map((item) => item.id);
+    if (action === "open_material" && Number.isInteger(plan.resultIndex)) {
+      const picked = state.items.find((item) => item.id === state.aiLastMaterialResults[plan.resultIndex]);
+      if (picked) {
+        openAiMaterialItem(picked);
+        const text = `Saya buka materi: ${picked.title}`;
+        if (surface === "popup") renderAiPopupText(text);
+        return { text };
+      }
+    }
+    if (action === "open_material" && matches.length === 1) {
+      openAiMaterialItem(matches[0]);
+      const text = `Saya buka materi: ${matches[0].title}`;
+      if (surface === "popup") renderAiPopupText(text);
+      return { text };
+    }
+    const text = matches.length
+      ? `Ditemukan ${matches.length} materi. Pilih tombol Buka untuk membuka isi penuh di viewer aplikasi.`
+      : "Tidak ada materi yang cocok.";
+    if (surface === "popup") showAiMaterialResults(surface, matches, text);
+    if (matches.length) applyMaterialSearchToLibrary(plan.query || originalQuestion);
+    return { text, extra: matches.length ? { kind: "materials", itemIds: matches.map((item) => item.id) } : {} };
   }
 
-  if (/\b(arsip|arsipkan)\b/i.test(normalized)) {
-    const matches = findItemsForAiCommand(question);
+  if (action === "delete_materials" || action === "archive_materials" || action === "update_status") {
+    const matches = resolveAiMaterialMatches(plan.query || originalQuestion, plan);
+    const type = action === "delete_materials" ? "delete" : action === "archive_materials" ? "archive" : "status";
+    const title = type === "delete" ? "Konfirmasi hapus" : type === "archive" ? "Konfirmasi arsip" : "Konfirmasi ubah status";
+    const message = type === "status"
+      ? (matches.length ? `Ditemukan ${matches.length} item. Ubah status menjadi ${plan.status}?` : "Tidak ada item yang cocok untuk diubah statusnya.")
+      : (matches.length ? `Ditemukan ${matches.length} item. ${type === "delete" ? "Hapus dari aplikasi" : "Arsipkan"}?` : `Tidak ada item yang cocok untuk ${type === "delete" ? "dihapus" : "diarsipkan"}.`);
     showAiActionConfirmation({
-      type: "archive",
+      type,
       ids: matches.map((item) => item.id),
-      title: "Konfirmasi arsip",
-      message: matches.length ? `Ditemukan ${matches.length} item. Arsipkan?` : "Tidak ada item yang cocok untuk diarsipkan."
+      status: plan.status,
+      title,
+      message,
+      surface
     });
-    return { text: matches.length ? `Menunggu konfirmasi arsip ${matches.length} item.` : "Tidak ada item yang cocok untuk diarsipkan." };
-  }
-
-  if (/\b(ubah|ganti|set)\b/i.test(normalized) && /\b(status)\b/i.test(normalized)) {
-    const status = statuses.find((entry) => normalized.includes(entry.toLowerCase()));
-    if (!status) return null;
-    const matches = findItemsForAiCommand(question);
-    showAiActionConfirmation({
-      type: "status",
-      status,
-      ids: matches.map((item) => item.id),
-      title: "Konfirmasi ubah status",
-      message: matches.length ? `Ditemukan ${matches.length} item. Ubah status menjadi ${status}?` : "Tidak ada item yang cocok untuk diubah statusnya."
-    });
-    return { text: matches.length ? `Menunggu konfirmasi ubah status ${matches.length} item.` : "Tidak ada item yang cocok untuk diubah statusnya." };
+    const text = matches.length ? `${title}. Menunggu YES / NO untuk ${matches.length} item.` : message;
+    return { text };
   }
 
   return null;
+}
+
+function applyMaterialSearchToLibrary(query) {
+  const keywords = extractItemSearchKeywords(query).join(" ");
+  if (!keywords) return;
+  state.query = keywords;
+  if (dom.searchInput) dom.searchInput.value = keywords;
+  resetGridLimits();
+  setView("library");
+}
+
+function showAiMaterialResults(surface, matches, heading) {
+  const ids = matches.map((item) => item.id).slice(0, 12);
+  if (surface === "assistant") {
+    appendAssistantChat("assistant", heading, { kind: "materials", itemIds: ids });
+    return;
+  }
+  renderAiPopupMaterialResults(heading, ids);
+}
+
+function renderAiPopupMaterialResults(heading, itemIds) {
+  if (!dom.aiPopupAnswer) return;
+  dom.aiPopupAnswer.replaceChildren();
+  const wrap = document.createElement("div");
+  wrap.className = "ai-material-result-box";
+  const title = document.createElement("strong");
+  title.textContent = heading;
+  wrap.append(title, createMaterialResultList(itemIds));
+  dom.aiPopupAnswer.append(wrap);
 }
 
 function renderAiPopupText(text) {
@@ -4839,25 +5289,47 @@ function renderAiPopupText(text) {
   dom.aiPopupAnswer.textContent = text;
 }
 
+function resolveAiMaterialMatches(query, plan = {}) {
+  const normalized = normalizeCommandText(query || "");
+  if (/\b(ini|yang ini|sedang dibuka|terbuka|current)\b/i.test(normalized) && state.activeFullscreenItem?.id) {
+    const active = state.items.find((item) => item.id === state.activeFullscreenItem.id);
+    if (active) return [active];
+  }
+  let items = findItemsForAiCommand(query || "");
+  if (!items.length && plan.query && plan.query !== query) items = findItemsForAiCommand(plan.query);
+  if (!items.length && query) {
+    const keywords = extractItemSearchKeywords(query);
+    items = state.items.filter((item) => {
+      const haystack = [item.title, item.mediaName, item.category, item.status, item.collection, item.notes, item.documentText, ...(item.tags || [])].join(" ").toLowerCase();
+      return keywords.some((word) => haystack.includes(word));
+    });
+  }
+  return items.slice(0, 50);
+}
+
 function findItemsForAiCommand(command) {
-  const normalized = command.toLowerCase();
+  const normalized = normalizeCommandText(command);
   let items = [...state.items];
   if (/\b(hasil scan|scan hp|file scan|storage)\b/i.test(normalized)) items = items.filter((item) => item.source === "storage-scan" || item.collection === "Scan HP" || (item.tags || []).includes("Scan HP"));
-  if (/\bvideo\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "Video");
-  if (/\bgambar\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "Gambar");
+  if (/\b(video|rekaman)\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "Video");
+  if (/\b(gambar|image|chart)\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "Gambar");
   if (/\b(pdf)\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "PDF");
   if (/\b(word|doc|docx)\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "Word");
   if (/\b(markdown|md|txt)\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "Markdown");
   if (/\b(excel|xls|xlsx|csv)\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "Excel");
   if (/\b(powerpoint|ppt|pptx)\b/i.test(normalized)) items = items.filter((item) => getItemFileType(item) === "PowerPoint");
-  if (/\b(dokumen|document)\b/i.test(normalized)) items = items.filter((item) => ["Dokumen", "PDF", "Word", "Markdown", "Excel", "PowerPoint"].includes(getItemFileType(item)));
+  if (/\b(dokumen|document|materi|catatan)\b/i.test(normalized)) items = items.filter((item) => ["Dokumen", "PDF", "Word", "Markdown", "Excel", "PowerPoint", "Video", "Gambar", "Kode"].includes(getItemFileType(item)) || item.type);
   if (/\bbelum (dibaca|ditonton|selesai)\b/i.test(normalized)) items = items.filter((item) => item.status === "Belum dibaca");
-  if (/\b(selesai|sudah dibaca|sudah ditonton)\b/i.test(normalized) && !/ubah|ganti|set/i.test(normalized)) items = items.filter((item) => item.status === "Selesai");
+  if (/\b(selesai|sudah dibaca|sudah ditonton)\b/i.test(normalized) && !/ubah|ganti|set|jadikan|tandai/i.test(normalized)) items = items.filter((item) => item.status === "Selesai");
+  if (/\b(lama|tidak aktif)\b/i.test(normalized)) {
+    const cutoff = Date.now() - 180 * 24 * 60 * 60 * 1000;
+    items = items.filter((item) => dateValue(item.updatedAt || item.createdAt) < cutoff);
+  }
 
   const keywords = extractItemSearchKeywords(command);
   if (keywords.length && !/\bsemua\b/i.test(normalized)) {
     items = items.filter((item) => {
-      const haystack = [item.title, item.mediaName, item.category, item.status, item.collection, item.notes, ...(item.tags || [])].join(" ").toLowerCase();
+      const haystack = [item.title, item.mediaName, item.category, item.status, item.collection, item.notes, item.documentText, ...(item.tags || [])].join(" ").toLowerCase();
       return keywords.every((word) => haystack.includes(word));
     });
   }
@@ -4865,17 +5337,30 @@ function findItemsForAiCommand(command) {
 }
 
 function extractItemSearchKeywords(command) {
-  const normalized = command.toLowerCase()
-    .replace(/\b(hapus|delete|remove|arsip|arsipkan|ubah|ganti|set|status|menjadi|ke|cari|tampilkan|lihat|daftar|file|materi|video|gambar|dokumen|pdf|word|doc|docx|markdown|md|txt|excel|xls|xlsx|csv|powerpoint|ppt|pptx|hasil|scan|storage|hp|semua|yang|belum|pernah|dibaca|ditonton|selesai|sudah|dari|aplikasi)\b/g, " ")
+  const normalized = normalizeCommandText(command)
+    .replace(/\b(tolong|coba|bantu|minta|aku|saya|dong|ya|nih|ini|itu|yang|dari|ke|di|dan|atau|untuk|dengan|lebih|semua|file|materi|video|gambar|dokumen|pdf|word|doc|docx|markdown|md|txt|excel|xls|xlsx|csv|powerpoint|ppt|pptx|hasil|scan|storage|hp|aplikasi|buka|open|lihat|daftar|list|cari|carikan|temukan|tampilkan|hapus|delete|remove|buang|hilangkan|arsip|arsipkan|arsipin|sembunyikan|ubah|ganti|set|status|menjadi|jadikan|tandai|mark|belum|pernah|dibaca|ditonton|selesai|sudah|lama|tidak|aktif|isi|nomor|no|urutan)\b/g, " ")
     .replace(/[^a-z0-9_.-]+/g, " ")
     .trim();
   return normalized.split(/\s+/).filter((word) => word.length > 2).slice(0, 8);
 }
 
 function showAiActionConfirmation(action) {
+  const surface = action.surface || "popup";
+  state.pendingAiAction = { ...action, surface };
+  if (!action.ids?.length) {
+    const text = action.message || "Tidak ada item yang cocok.";
+    if (surface === "assistant") appendAssistantChat("assistant", text); else renderAiPopupText(text);
+    return;
+  }
+  if (surface === "assistant") {
+    renderAssistantChatLog();
+    return;
+  }
   if (!dom.aiPopupAnswer) return;
-  state.pendingAiAction = action;
-  dom.aiPopupAnswer.replaceChildren();
+  dom.aiPopupAnswer.replaceChildren(createAiActionConfirmNode(state.pendingAiAction));
+}
+
+function createAiActionConfirmNode(action) {
   const wrap = document.createElement("div");
   wrap.className = "ai-action-confirm";
   const title = document.createElement("strong");
@@ -4884,14 +5369,14 @@ function showAiActionConfirmation(action) {
   message.textContent = action.message;
   const preview = document.createElement("div");
   preview.className = "ai-action-preview";
-  const matched = state.items.filter((item) => action.ids.includes(item.id)).slice(0, 8);
-  preview.textContent = matched.map((item, index) => `${index + 1}. ${item.title} • ${getItemFileType(item)}`).join("\n");
+  const matched = state.items.filter((item) => action.ids.includes(item.id)).slice(0, 10);
+  preview.textContent = matched.map((item, index) => `${index + 1}. ${item.title} • ${getItemFileType(item)} • ${item.status}`).join("\n");
   const buttons = document.createElement("div");
   buttons.className = "ai-action-buttons";
   const yes = document.createElement("button");
   yes.type = "button";
   yes.className = "primary-button";
-  yes.textContent = "YES";
+  yes.textContent = action.type === "delete" ? "YES, Hapus" : action.type === "archive" ? "YES, Arsipkan" : "YES";
   yes.disabled = !action.ids.length;
   yes.addEventListener("click", confirmPendingAiAction);
   const no = document.createElement("button");
@@ -4903,7 +5388,7 @@ function showAiActionConfirmation(action) {
   wrap.append(title, message);
   if (preview.textContent) wrap.append(preview);
   wrap.append(buttons);
-  dom.aiPopupAnswer.append(wrap);
+  return wrap;
 }
 
 async function confirmPendingAiAction() {
@@ -4911,37 +5396,37 @@ async function confirmPendingAiAction() {
   if (!action) return;
   state.pendingAiAction = null;
   const now = new Date().toISOString();
+  let text = "Aksi selesai.";
   if (action.type === "delete") {
     const ok = await deleteItemsByIds(action.ids);
-    renderAiPopupText(ok ? `Selesai. ${action.ids.length} item dihapus dari aplikasi.` : "Hapus dibatalkan/gagal.");
-    return;
-  }
-  if (action.type === "archive") {
+    text = ok ? `Selesai. ${action.ids.length} item dihapus dari aplikasi.` : "Hapus dibatalkan/gagal.";
+  } else if (action.type === "archive") {
     state.items = state.items.map((item) => action.ids.includes(item.id) ? { ...item, archived: true, updatedAt: now } : item);
     saveItems();
     render();
-    renderAiPopupText(`Selesai. ${action.ids.length} item diarsipkan.`);
-    return;
-  }
-  if (action.type === "status") {
+    text = `Selesai. ${action.ids.length} item diarsipkan.`;
+  } else if (action.type === "status") {
     state.items = state.items.map((item) => action.ids.includes(item.id) ? { ...item, status: action.status, updatedAt: now } : item);
     saveItems();
     render();
-    renderAiPopupText(`Selesai. ${action.ids.length} item diubah menjadi ${action.status}.`);
+    text = `Selesai. ${action.ids.length} item diubah menjadi ${action.status}.`;
   }
+  if (action.surface === "assistant") appendAssistantChat("assistant", text); else renderAiPopupText(text);
 }
 
 function cancelPendingAiAction() {
+  const action = state.pendingAiAction;
   state.pendingAiAction = null;
-  renderAiPopupText("Aksi dibatalkan.");
+  const text = "Aksi dibatalkan.";
+  if (action?.surface === "assistant") appendAssistantChat("assistant", text); else renderAiPopupText(text);
 }
 
-function createMaterialFromAiCommand(command) {
+function createMaterialFromAiCommand(command, plan = {}) {
   const raw = command.replace(/^\s*(tambah|buat|simpan)\s+materi\s*:?/i, "").trim();
-  if (!raw) return null;
+  if (!raw && !plan.title && !plan.body) return null;
   const [titlePart, ...bodyParts] = raw.split("|");
-  const title = (titlePart || "Materi Baru").trim().slice(0, 100) || "Materi Baru";
-  const body = (bodyParts.join("|").trim() || title).slice(0, 8000);
+  const title = (plan.title || titlePart || "Materi Baru").trim().slice(0, 100) || "Materi Baru";
+  const body = (plan.body || bodyParts.join("|").trim() || title).slice(0, 8000);
   const now = new Date().toISOString();
   const markdown = `# ${title}
 
