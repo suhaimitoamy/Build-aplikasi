@@ -654,7 +654,7 @@ function closeOpenFilterMenus(except = null) {
   });
 }
 
-const GRID_BATCH_SIZE = 24;
+const GRID_BATCH_SIZE = 12;
 
 function invalidateRenderCache(resetLimits = false) {
   state.itemsVersion += 1;
@@ -684,7 +684,16 @@ function setView(view, shouldRender = true) {
     button.classList.toggle("is-active", button.dataset.view === state.view);
   });
   saveSettings();
-  if (shouldRender) render();
+  if (shouldRender) scheduleRender();
+}
+
+let renderFrameId = 0;
+function scheduleRender() {
+  if (renderFrameId) cancelAnimationFrame(renderFrameId);
+  renderFrameId = requestAnimationFrame(() => {
+    renderFrameId = 0;
+    render();
+  });
 }
 
 function render() {
@@ -4997,6 +5006,92 @@ async function askAssistant() {
   await processAssistantInput(question, "assistant");
 }
 
+function buildLocalAssistantQuickAnswer(question) {
+  const normalized = normalizeCommandText(question);
+  const stats = calculateJournalStats(state.journals);
+  if (/\b(berapa|jumlah|total)\b.*\b(jurnal|entry|entri)\b/i.test(normalized) || /\b(sudah ada|ada)\b.*\b(jurnal|entry|entri)\b/i.test(normalized)) {
+    return `Saat ini ada ${state.journals.length} jurnal. Win rate ${stats.winRate}%, net P/L ${formatTradeAmount(stats.netProfit)}.`;
+  }
+  if (/\b(berapa|jumlah|total)\b.*\b(file|materi|library|dokumen)\b/i.test(normalized)) {
+    const active = state.items.filter((item) => !item.archived).length;
+    return `Saat ini ada ${state.items.length} file/materi, dengan ${active} item aktif dan ${state.items.length - active} item arsip.`;
+  }
+  if (/\b(win rate|wr|rasio menang)\b/i.test(normalized)) {
+    return `Win rate jurnal saat ini ${stats.winRate}% dari ${state.journals.length} jurnal.`;
+  }
+  if (/\b(net p\/l|profit loss|profit|loss)\b/i.test(normalized) && /\b(berapa|total|jumlah|saat ini)\b/i.test(normalized)) {
+    return `Total profit ${formatTradeAmount(stats.totalProfit)}, total loss ${formatTradeAmount(stats.totalLoss)}, net P/L ${formatTradeAmount(stats.netProfit)}.`;
+  }
+  return "";
+}
+
+async function getRelevantLocalContext(question) {
+  const keywords = extractItemSearchKeywords(question);
+  const questionText = normalizeCommandText(question);
+  const stats = calculateJournalStats(state.journals);
+  const matchedItems = rankContextItems(questionText, keywords).slice(0, 8);
+  const recentJournals = state.journals.slice(0, 8);
+  const matchedJournals = rankContextJournals(questionText, keywords).slice(0, 6);
+  const journalPool = mergeUniqueById([...matchedJournals, ...recentJournals]).slice(0, 10);
+
+  const materialText = matchedItems.map((item, index) => {
+    const body = [item.notes, item.documentText, item.code].filter(Boolean).join("\n").slice(0, 700);
+    return `${index + 1}. ${item.title || "Tanpa judul"} | ${getItemFileType(item)} | ${item.category || "-"} | ${item.status || "-"}\nCatatan/isi pendek: ${body || "Tidak ada ringkasan."}`;
+  }).join("\n\n");
+
+  const journalText = journalPool.map((journal, index) => {
+    return `${index + 1}. ${formatDate(journal.date)} ${journal.market || ""} ${journal.setup || ""} ${journal.result || ""} ${getJournalProfitLossText(journal)}\nRencana: ${journal.plan || "-"}\nEvaluasi: ${journal.evaluation || "-"}\nKesalahan: ${journal.mistakes || "-"}\nPelajaran: ${journal.lessons || "-"}`;
+  }).join("\n\n");
+
+  const text = [
+    "Sumber Lokal Aplikasi:",
+    `Total file/materi: ${state.items.length}`,
+    `Total jurnal: ${state.journals.length}`,
+    `Win rate: ${stats.winRate}%`,
+    `Total profit: ${formatTradeAmount(stats.totalProfit)}`,
+    `Total loss: ${formatTradeAmount(stats.totalLoss)}`,
+    `Net P/L: ${formatTradeAmount(stats.netProfit)}`,
+    "",
+    `Materi relevan:\n${materialText || "Tidak ada materi relevan yang cocok."}`,
+    "",
+    `Jurnal relevan/terbaru:\n${journalText || "Belum ada jurnal."}`
+  ].join("\n");
+  return { text };
+}
+
+function rankContextItems(questionText, keywords) {
+  return [...state.items].map((item) => {
+    const haystack = [item.title, item.type, item.category, item.status, item.collection, item.notes, item.documentText, ...(item.tags || [])].join(" ").toLowerCase();
+    let score = 0;
+    keywords.forEach((word) => { if (haystack.includes(word)) score += 3; });
+    if (questionText && item.title && questionText.includes(String(item.title).toLowerCase())) score += 8;
+    if (item.favorite) score += 1;
+    score += Math.max(0, 3 - Math.floor((Date.now() - dateValue(item.updatedAt || item.createdAt)) / (30 * 24 * 60 * 60 * 1000)));
+    return { item, score };
+  }).filter((row) => row.score > 0).sort((a, b) => b.score - a.score).map((row) => row.item);
+}
+
+function rankContextJournals(questionText, keywords) {
+  return [...state.journals].map((journal) => {
+    const haystack = [journal.title, journal.market, journal.setup, journal.result, journal.plan, journal.evaluation, journal.mistakes, journal.lessons, journal.emotion].join(" ").toLowerCase();
+    let score = 0;
+    keywords.forEach((word) => { if (haystack.includes(word)) score += 3; });
+    if (/\b(jurnal|loss|profit|win|entry|setup|kesalahan|emosi)\b/i.test(questionText)) score += 2;
+    score += Math.max(0, 3 - Math.floor((Date.now() - dateValue(journal.updatedAt || journal.createdAt || journal.date)) / (30 * 24 * 60 * 60 * 1000)));
+    return { journal, score };
+  }).filter((row) => row.score > 0).sort((a, b) => b.score - a.score).map((row) => row.journal);
+}
+
+function mergeUniqueById(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const id = item?.id || JSON.stringify(item);
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
 async function runAssistantQuestion(question, targetElement, options = {}) {
   saveGeminiSettings();
   state.geminiApiKey = normalizeApiKey(state.geminiApiKey || dom.geminiApiKeyInput?.value || "");
@@ -5047,24 +5142,36 @@ async function processAssistantInput(question, surface = "assistant") {
     renderAiPopupText("Memproses perintah...");
   }
 
-  const actionResult = await handleAiActionCommand(question, { surface });
-  if (actionResult) {
+  const finish = (text, extra = {}) => {
+    const safeText = text || "Tidak ada jawaban.";
     state.aiPopupLastQuestion = question;
-    state.aiPopupLastAnswer = actionResult.text || "";
-    if (isAssistantSurface && pendingId) updateAssistantChatMessage(pendingId, actionResult.text || "Selesai.", actionResult.extra || {});
-    if (!isAssistantSurface && dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = true;
-    return actionResult.text || "";
-  }
+    state.aiPopupLastAnswer = safeText;
+    if (isAssistantSurface && pendingId) updateAssistantChatMessage(pendingId, safeText, extra);
+    if (!isAssistantSurface) renderAiPopupText(safeText);
+    return safeText;
+  };
 
-  const answer = await runAssistantQuestion(question, null, { mode: state.assistantMode });
-  state.aiPopupLastQuestion = question;
-  state.aiPopupLastAnswer = answer;
-  if (isAssistantSurface && pendingId) updateAssistantChatMessage(pendingId, answer || "Tidak ada jawaban.");
-  if (!isAssistantSurface) {
-    renderAiPopupText(answer || "Tidak ada jawaban.");
-    if (dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = !answer;
+  try {
+    const actionResult = await handleAiActionCommand(question, { surface });
+    if (actionResult) {
+      if (!isAssistantSurface && dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = true;
+      return finish(actionResult.text || "Selesai.", actionResult.extra || {});
+    }
+
+    const quickAnswer = buildLocalAssistantQuickAnswer(question);
+    if (quickAnswer) {
+      if (!isAssistantSurface && dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = false;
+      return finish(quickAnswer);
+    }
+
+    const answer = await runAssistantQuestion(question, null, { mode: state.assistantMode });
+    if (!isAssistantSurface && dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = !answer;
+    return finish(answer || "Tidak ada jawaban.");
+  } catch (error) {
+    const message = `Asisten berhenti karena error: ${error.message || "proses gagal"}`;
+    if (!isAssistantSurface && dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = true;
+    return finish(message);
   }
-  return answer;
 }
 
 async function askAiPopup() {
@@ -5537,6 +5644,19 @@ function formatJournalForAI(journal) {
   ].join("\n");
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error("Koneksi AI timeout. Coba kirim ulang atau pakai model yang lebih cepat.");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function callAI(parts) {
   const provider = state.aiProvider || "gemini";
   if (provider === "gemini") return callGeminiProvider(parts);
@@ -5546,7 +5666,7 @@ async function callAI(parts) {
 async function callGeminiProvider(parts) {
   const model = encodeURIComponent(state.geminiModel || getDefaultModelForProvider("gemini"));
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(state.geminiApiKey)}`;
-  const response = await fetch(endpoint, {
+  const response = await fetchWithTimeout(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -5565,7 +5685,7 @@ async function callOpenAICompatibleProvider(parts, provider) {
   const endpoint = getChatCompletionEndpoint(provider);
   const content = partsToOpenAIContent(parts);
   const model = state.geminiModel || getDefaultModelForProvider(provider);
-  const response = await fetch(endpoint, {
+  const response = await fetchWithTimeout(endpoint, {
     method: "POST",
     mode: "cors",
     credentials: "omit",

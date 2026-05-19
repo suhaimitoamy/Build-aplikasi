@@ -3744,3 +3744,58 @@ body {
     font-size: 2.15rem;
   }
 }
+
+/* Mobile performance hotfix: keep the trading workspace look, reduce render cost on Android WebView/mobile browsers. */
+@media (max-width: 720px) {
+  *, *::before, *::after {
+    transition-duration: 120ms !important;
+    animation-duration: 180ms !important;
+  }
+
+  .app-header,
+  .bottom-nav,
+  .assistant-workspace,
+  .workspace-card,
+  .library-card,
+  .floating-ai-panel,
+  .fullscreen-overlay,
+  .reader-article,
+  .modal-card,
+  .drawer-panel,
+  .filter-toggle-button,
+  .workspace-shell,
+  .assistant-chat-log,
+  .assistant-message,
+  .reader-surface,
+  .form-card,
+  .stat-card,
+  .dashboard-card {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22) !important;
+  }
+
+  .workspace-card::before,
+  .library-card::before,
+  .assistant-workspace::before,
+  .dashboard-card::before,
+  .reader-article::before {
+    opacity: 0.28 !important;
+  }
+
+  .library-grid,
+  .media-grid,
+  .code-grid,
+  .journal-list {
+    content-visibility: auto;
+    contain-intrinsic-size: 900px;
+  }
+
+  .library-card,
+  .journal-card,
+  .assistant-message,
+  .reader-section {
+    content-visibility: auto;
+    contain-intrinsic-size: 220px;
+  }
+}
