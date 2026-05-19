@@ -3825,7 +3825,7 @@ body {
   padding: 8px;
 }
 
-.assistant-unified-route span {
+.assistant-unified-route .assistant-mode-tab {
   display: inline-flex;
   min-height: 32px;
   align-items: center;
@@ -3837,6 +3837,37 @@ body {
   font-size: 0.74rem;
   font-weight: 900;
   padding: 0 11px;
+}
+
+.assistant-unified-route .assistant-mode-tab.is-active {
+  border-color: rgba(57, 255, 136, 0.48);
+  background: rgba(57, 255, 136, 0.16);
+  color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(57, 255, 136, 0.08), 0 12px 26px rgba(57, 255, 136, 0.08);
+}
+
+.assistant-shortcut-menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.assistant-shortcut-chip {
+  min-height: 34px;
+  border: 1px solid rgba(244, 255, 247, 0.1);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--text);
+  font-size: 0.74rem;
+  font-weight: 800;
+  padding: 0 12px;
+}
+
+.assistant-shortcut-chip:active {
+  transform: translateY(1px);
+  border-color: rgba(57, 255, 136, 0.38);
+  color: var(--accent);
 }
 
 .assistant-chat-log {
@@ -3968,7 +3999,7 @@ body {
     font-size: 0.88rem;
   }
 
-  .assistant-unified-route span {
+  .assistant-unified-route .assistant-mode-tab {
     flex: 1 1 auto;
   }
 

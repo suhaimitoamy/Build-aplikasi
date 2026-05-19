@@ -123,6 +123,7 @@ const dom = {
   assistantAnswer: document.querySelector("#assistantAnswer"),
   assistantChatLog: document.querySelector("#assistantChatLog"),
   assistantModeTabs: document.querySelector("#assistantModeTabs"),
+  assistantShortcutMenu: document.querySelector("#assistantShortcutMenu"),
   assistantModeButtons: document.querySelectorAll(".assistant-mode-tab"),
   assistantModeLabel: document.querySelector("#assistantModeLabel"),
   clearAssistantHistoryBtn: document.querySelector("#clearAssistantHistoryBtn"),
@@ -357,7 +358,12 @@ function bindEvents() {
   dom.clearInsightBtn?.addEventListener("click", clearInsightCache);
   dom.askAssistantBtn?.addEventListener("click", askAssistant);
   dom.clearAssistantHistoryBtn?.addEventListener("click", clearAssistantHistory);
-  dom.assistantModeButtons?.forEach((button) => button.addEventListener("click", () => setAssistantMode(button.dataset.assistantMode || "coach")));
+  dom.assistantModeTabs?.addEventListener("click", (event) => {
+    const button = event.target.closest(".assistant-mode-tab");
+    if (!button) return;
+    setAssistantMode(button.dataset.assistantMode || "coach");
+  });
+  dom.assistantShortcutMenu?.addEventListener("click", handleAssistantShortcutClick);
   dom.assistantQuestionInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -4984,15 +4990,81 @@ function setAssistantMode(mode = "coach") {
   renderAssistantModeTabs();
 }
 
+function getAssistantModeConfig(mode = state.assistantMode || "coach") {
+  const configs = {
+    coach: {
+      label: "Coach Trading",
+      placeholder: "Tanya evaluasi trading, jurnal, psikologi, atau konsep...",
+      items: [
+        { label: "Evaluasi jurnal terakhir", prompt: "evaluasi jurnal terakhir saya" },
+        { label: "Kenapa saya sering salah?", prompt: "kenapa saya sering salah dari jurnal terakhir?" },
+        { label: "Buat checklist entry", prompt: "buatkan checklist sebelum entry berdasarkan jurnal saya" },
+        { label: "Jelaskan konsep", prompt: "jelaskan konsep trading ini secara sederhana: " }
+      ]
+    },
+    material: {
+      label: "Cari Materi",
+      placeholder: "Cari materi, buka bab, atau tampilkan daftar file...",
+      items: [
+        { label: "Cari materi", prompt: "cari materi tentang " },
+        { label: "Buka bab", prompt: "buka bab " },
+        { label: "Daftar video", prompt: "tampilkan daftar materi video" },
+        { label: "Daftar markdown", prompt: "tampilkan daftar materi markdown" }
+      ]
+    },
+    action: {
+      label: "Aksi Aplikasi",
+      placeholder: "Pilih aksi aman: hapus, arsipkan, ubah status, atau buka file...",
+      items: [
+        { label: "Hapus materi", prompt: "hapus materi " },
+        { label: "Arsipkan materi", prompt: "arsipkan materi " },
+        { label: "Ubah status selesai", prompt: "ubah status materi menjadi selesai: " },
+        { label: "Buka file", prompt: "buka file " }
+      ]
+    }
+  };
+  return configs[mode] || configs.coach;
+}
+
 function renderAssistantModeTabs() {
-  dom.assistantModeButtons?.forEach((button) => {
-    button.classList.remove("is-active");
-    button.setAttribute("aria-selected", "false");
+  const buttons = dom.assistantModeTabs?.querySelectorAll(".assistant-mode-tab") || dom.assistantModeButtons || [];
+  buttons.forEach((button) => {
+    const active = button.dataset.assistantMode === state.assistantMode;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
   });
-  if (dom.assistantModeLabel) dom.assistantModeLabel.textContent = "Smart Assistant";
-  if (dom.assistantQuestionInput) {
-    dom.assistantQuestionInput.placeholder = "Tanya, cari materi, buka file, atau jalankan perintah...";
-  }
+  const config = getAssistantModeConfig();
+  if (dom.assistantModeLabel) dom.assistantModeLabel.textContent = config.label;
+  if (dom.assistantQuestionInput) dom.assistantQuestionInput.placeholder = config.placeholder;
+  renderAssistantShortcutMenu(config);
+}
+
+function renderAssistantShortcutMenu(config = getAssistantModeConfig()) {
+  if (!dom.assistantShortcutMenu) return;
+  dom.assistantShortcutMenu.replaceChildren();
+  config.items.forEach((item) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "assistant-shortcut-chip";
+    button.textContent = item.label;
+    button.dataset.prompt = item.prompt;
+    dom.assistantShortcutMenu.append(button);
+  });
+}
+
+
+function autoGrowTextarea(textarea) {
+  if (!textarea) return;
+  textarea.style.height = "auto";
+  textarea.style.height = `${Math.min(textarea.scrollHeight, 140)}px`;
+}
+
+function handleAssistantShortcutClick(event) {
+  const button = event.target.closest(".assistant-shortcut-chip");
+  if (!button || !dom.assistantQuestionInput) return;
+  dom.assistantQuestionInput.value = button.dataset.prompt || "";
+  dom.assistantQuestionInput.focus();
+  autoGrowTextarea(dom.assistantQuestionInput);
 }
 
 function clearAssistantHistory() {
