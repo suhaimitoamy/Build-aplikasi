@@ -5204,7 +5204,118 @@ function buildLocalAssistantQuickAnswer(question) {
   if (/\b(net p\/l|profit loss|profit|loss)\b/i.test(normalized) && /\b(berapa|total|jumlah|saat ini)\b/i.test(normalized)) {
     return `Total profit ${formatTradeAmount(stats.totalProfit)}, total loss ${formatTradeAmount(stats.totalLoss)}, net P/L ${formatTradeAmount(stats.netProfit)}.`;
   }
+  const conceptAnswer = buildTradingConceptAnswer(question);
+  if (conceptAnswer) return conceptAnswer;
   return "";
+}
+
+function buildTradingConceptAnswer(question) {
+  const normalized = normalizeCommandText(question);
+  if (!isTradingConceptQuestion(normalized)) return null;
+
+  const concept = detectTradingConcept(normalized);
+  const relatedItems = getRelatedMaterialsForConcept(question, concept).slice(0, 5);
+  if (!concept && !relatedItems.length) return null;
+
+  const explanation = concept?.explanation || buildFallbackConceptExplanation(question, relatedItems);
+  const materialLines = relatedItems.length
+    ? ["", "Materi terkait:", ...relatedItems.map((item, index) => `${index + 1}. ${item.title}`)]
+    : [];
+  const source = relatedItems.length && concept
+    ? "Sumber: materi terupload + pengetahuan AI"
+    : relatedItems.length
+      ? "Sumber: materi terupload"
+      : "Sumber: pengetahuan AI, bukan dari materi/jurnal pengguna";
+
+  return {
+    text: [explanation, ...materialLines, "", source].join("\n"),
+    extra: relatedItems.length ? { kind: "materials", itemIds: relatedItems.map((item) => item.id) } : {}
+  };
+}
+
+function isTradingConceptQuestion(normalized) {
+  return /\b(apa itu|apakah|jelaskan|jelasin|maksud|pengertian|definisi|konsep|artinya|arti|fungsi|kegunaan|bagaimana cara kerja)\b/i.test(normalized);
+}
+
+function detectTradingConcept(normalized) {
+  const concepts = [
+    {
+      aliases: ["order block", "orderblock", " ob "],
+      title: "Order Block",
+      explanation: "Order Block adalah area harga tempat institusi atau pelaku besar kemungkinan meninggalkan jejak order sebelum harga bergerak kuat. Dalam praktik trading, area ini sering dipakai sebagai zona reaksi potensial, bukan sinyal tunggal untuk entry. Order Block yang lebih kuat biasanya muncul setelah displacement jelas, sweep liquidity, atau perubahan struktur market."
+    },
+    {
+      aliases: ["fair value gap", " fvg ", "imbalance"],
+      title: "Fair Value Gap",
+      explanation: "FVG atau Fair Value Gap adalah area ketidakseimbangan harga yang terbentuk saat harga bergerak cepat dan meninggalkan ruang antar candle. Area ini sering dianggap sebagai zona yang berpotensi dikunjungi kembali oleh harga sebelum melanjutkan arah. FVG lebih aman dibaca bersama struktur market, liquidity, dan konteks premium-discount."
+    },
+    {
+      aliases: ["liquidity sweep", "liquidity", "sweep", "liquiditas", "likuiditas"],
+      title: "Liquidity Sweep",
+      explanation: "Liquidity Sweep adalah gerakan harga yang mengambil stop loss atau likuiditas di atas high/di bawah low sebelum harga berbalik atau melanjutkan arah yang lebih jelas. Konsep ini membantu trader membedakan breakout asli dengan jebakan likuiditas. Sweep tetap perlu dikonfirmasi dengan reaksi harga, struktur, dan timing session."
+    },
+    {
+      aliases: ["bos", "break of structure"],
+      title: "BOS",
+      explanation: "BOS atau Break of Structure adalah kondisi ketika harga menembus struktur penting dan menunjukkan kelanjutan arah market. BOS biasanya dipakai untuk mengonfirmasi bahwa momentum masih searah dengan bias utama. Validitas BOS lebih kuat jika terjadi setelah liquidity diambil dan disertai displacement yang jelas."
+    },
+    {
+      aliases: ["choch", "change of character", "change in character"],
+      title: "CHoCH",
+      explanation: "CHoCH atau Change of Character adalah perubahan karakter pergerakan harga yang memberi tanda awal potensi perubahan arah. CHoCH tidak otomatis berarti reversal pasti, tetapi menjadi peringatan bahwa struktur sebelumnya mulai melemah. Konfirmasi tambahan tetap diperlukan melalui liquidity, displacement, dan area reaksi."
+    },
+    {
+      aliases: ["poi", "point of interest"],
+      title: "POI",
+      explanation: "POI atau Point of Interest adalah area harga yang dianggap penting untuk menunggu reaksi, seperti Order Block, FVG, supply-demand, atau area liquidity. POI bukan tempat entry otomatis, tetapi lokasi untuk mencari konfirmasi. POI yang baik biasanya selaras dengan bias, struktur, dan target likuiditas."
+    },
+    {
+      aliases: ["judas swing", "judas"],
+      title: "Judas Swing",
+      explanation: "Judas Swing adalah gerakan awal session yang terlihat meyakinkan ke satu arah, tetapi sering berfungsi menjebak trader sebelum harga bergerak ke arah utama. Konsep ini banyak dipakai untuk membaca manipulasi awal London/New York. Trader biasanya menunggu sweep dan konfirmasi sebelum mengambil keputusan."
+    },
+    {
+      aliases: ["pdh", "previous day high"],
+      title: "PDH",
+      explanation: "PDH atau Previous Day High adalah harga tertinggi hari sebelumnya. Level ini sering menjadi area likuiditas karena banyak stop loss atau order tertahan di sekitar high tersebut. Reaksi harga di PDH perlu dibaca bersama sweep, displacement, dan bias harian."
+    },
+    {
+      aliases: ["pdl", "previous day low"],
+      title: "PDL",
+      explanation: "PDL atau Previous Day Low adalah harga terendah hari sebelumnya. Level ini sering menjadi area likuiditas karena stop loss seller/buyer dapat terkumpul di sana. PDL penting untuk membaca potensi sweep, reversal, atau continuation berdasarkan konteks market."
+    },
+    {
+      aliases: ["ce", "consequent encroachment"],
+      title: "CE",
+      explanation: "CE atau Consequent Encroachment adalah area tengah dari imbalance/FVG yang sering dipakai sebagai level reaksi. Dalam praktik ICT, CE membantu mengukur apakah harga sudah mengisi sebagian gap secara cukup. CE tetap harus dibaca bersama struktur, liquidity, dan bias market."
+    },
+    {
+      aliases: ["premium", "discount", "premium discount"],
+      title: "Premium dan Discount",
+      explanation: "Premium dan Discount adalah cara membaca posisi harga relatif terhadap range. Area premium berarti harga relatif mahal dalam range, sedangkan discount berarti relatif murah. Konsep ini membantu trader menghindari buy terlalu tinggi atau sell terlalu rendah."
+    },
+    {
+      aliases: ["risk management", "manajemen risiko", "risk", "rr", "risk reward"],
+      title: "Risk Management",
+      explanation: "Risk Management adalah aturan mengelola risiko agar satu kesalahan tidak merusak akun. Isinya bisa berupa batas risiko per trade, stop loss, ukuran posisi, RR minimal, dan batas kerugian harian. Dalam trading, risk management sering lebih menentukan konsistensi daripada akurasi entry."
+    }
+  ];
+  const padded = ` ${normalized} `;
+  return concepts.find((concept) => concept.aliases.some((alias) => padded.includes(alias)));
+}
+
+function buildFallbackConceptExplanation(question, relatedItems = []) {
+  const title = relatedItems[0]?.title || extractItemSearchKeywords(question).join(" ") || "konsep ini";
+  return `Konsep ini berkaitan dengan materi ${title}. Untuk jawaban yang lebih tepat, buka materi terkait di bawah agar isi lengkapnya tampil di viewer aplikasi.`;
+}
+
+function getRelatedMaterialsForConcept(question, concept = null) {
+  const queryParts = [question, concept?.title || "", ...(concept?.aliases || [])].filter(Boolean);
+  const keywords = extractItemSearchKeywords(queryParts.join(" "));
+  const questionText = normalizeCommandText(queryParts.join(" "));
+  const ranked = rankContextItems(questionText, keywords).slice(0, 8);
+  const direct = resolveAiMaterialMatches(question, {}).slice(0, 8);
+  return mergeUniqueById([...ranked, ...direct]).filter((item) => !item.archived).slice(0, 5);
 }
 
 async function getRelevantLocalContext(question) {
@@ -5290,11 +5401,13 @@ async function runAssistantQuestion(question, targetElement, options = {}) {
 
 Mode aktif: ${options.mode || state.assistantMode || "coach"}
 
-Aturan sumber:
+Aturan sumber dan format jawaban:
 1. Prioritaskan Sumber Lokal dari materi terupload, jurnal, statistik, catatan file, dan insight lokal.
-2. Jika Sumber Lokal tidak cukup, boleh jawab memakai pengetahuan umum AI.
-3. Jangan menyalin isi materi panjang ke chat. Untuk daftar materi atau isi materi penuh, arahkan aplikasi untuk membuka daftar/viewer.
-4. Di akhir jawaban tulis sumber secara jelas, misalnya "Sumber: materi terupload", "Sumber: jurnal trading", "Sumber: statistik", atau "Sumber: pengetahuan AI, bukan dari materi/jurnal pengguna".
+2. Jika user bertanya konsep trading seperti "apa itu", "jelaskan", atau "maksudnya", jawab definisi dan penjelasan sederhana dulu dalam 3-6 kalimat. Jangan hanya menyuruh user membaca materi.
+3. Setelah menjawab konsep, jika ada Materi relevan, tampilkan bagian "Materi terkait:" berisi judul materi yang cocok.
+4. Jika Sumber Lokal tidak cukup, boleh jawab memakai pengetahuan umum AI, tetapi tetap praktis dan edukatif.
+5. Jangan menyalin isi materi panjang ke chat. Untuk daftar materi atau isi materi penuh, arahkan aplikasi untuk membuka daftar/viewer.
+6. Di akhir jawaban tulis sumber secara jelas, misalnya "Sumber: materi terupload + pengetahuan AI", "Sumber: materi terupload", "Sumber: jurnal trading", "Sumber: statistik", atau "Sumber: pengetahuan AI, bukan dari materi/jurnal pengguna".
 
 Insight kebiasaan lokal:
 ${state.insightCache?.text || "Belum ada insight."}
@@ -5343,6 +5456,7 @@ async function processAssistantInput(question, surface = "assistant") {
     const quickAnswer = buildLocalAssistantQuickAnswer(question);
     if (quickAnswer) {
       if (!isAssistantSurface && dom.saveAiPopupMaterialBtn) dom.saveAiPopupMaterialBtn.disabled = false;
+      if (typeof quickAnswer === "object") return finish(quickAnswer.text, quickAnswer.extra || {});
       return finish(quickAnswer);
     }
 
