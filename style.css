@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
+
 :root {
   color-scheme: dark;
   --bg: #050806;
@@ -5,30 +7,49 @@
   --surface: #101712;
   --surface-strong: #151f18;
   --surface-glow: rgba(57, 255, 136, 0.12);
-  --line: rgba(244, 255, 247, 0.1);
+  --line: rgba(244, 255, 247, 0.08);
   --line-strong: rgba(57, 255, 136, 0.28);
   --text: #f4fff7;
   --muted: #8c9f94;
   --muted-strong: #b9c9bf;
   --accent: #39ff88;
-  --accent-soft: rgba(57, 255, 136, 0.16);
+  --accent-soft: rgba(57, 255, 136, 0.14);
   --danger: #ff5f6d;
   --warning: #ffd166;
   --info: #5fd0ff;
   --radius-lg: 18px;
   --radius-md: 14px;
   --radius-sm: 10px;
-  --shadow: 0 22px 70px rgba(0, 0, 0, 0.38);
+  --shadow: 0 22px 70px rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.2);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 * {
   box-sizing: border-box;
 }
 
+/* Slim Premium Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-soft);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
 html {
   min-height: 100%;
   background: var(--bg);
+  scroll-behavior: smooth;
 }
 
 body {
@@ -36,12 +57,13 @@ body {
   margin: 0;
   overflow-x: hidden;
   background:
-    radial-gradient(circle at top left, rgba(57, 255, 136, 0.12), transparent 34rem),
+    radial-gradient(circle at top left, rgba(57, 255, 136, 0.12), transparent 36rem),
+    radial-gradient(circle at bottom right, rgba(95, 208, 255, 0.06), transparent 32rem),
     linear-gradient(180deg, #07100a 0%, #050806 46%, #030403 100%);
   color: var(--text);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: 'Plus Jakarta Sans', Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
   font-size: 15px;
-  letter-spacing: 0;
+  letter-spacing: -0.01em;
 }
 
 button,
@@ -81,9 +103,10 @@ textarea:focus-visible {
   gap: 12px;
   margin: -18px -12px 0;
   padding: calc(18px + env(safe-area-inset-top, 0px)) 12px 12px;
-  border-bottom: 1px solid rgba(244, 255, 247, 0.06);
-  background: rgba(5, 8, 6, 0.82);
-  backdrop-filter: blur(18px);
+  border-bottom: 1px solid rgba(244, 255, 247, 0.05);
+  background: rgba(5, 8, 6, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
 .brand {
@@ -102,9 +125,9 @@ textarea:focus-visible {
   border: 1px solid var(--line-strong);
   border-radius: 15px;
   background:
-    linear-gradient(135deg, rgba(57, 255, 136, 0.2), rgba(57, 255, 136, 0.04)),
+    linear-gradient(135deg, rgba(57, 255, 136, 0.25), rgba(57, 255, 136, 0.06)),
     #08100b;
-  box-shadow: 0 0 28px rgba(57, 255, 136, 0.16);
+  box-shadow: 0 0 28px rgba(57, 255, 136, 0.2);
   color: var(--accent);
   font-weight: 900;
 }
@@ -118,9 +141,9 @@ textarea:focus-visible {
 .card-meta,
 .form-head span {
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
@@ -130,7 +153,7 @@ textarea:focus-visible {
 .empty-state h3 {
   margin: 0;
   color: var(--text);
-  letter-spacing: 0;
+  letter-spacing: -0.02em;
 }
 
 .brand-copy h1 {
@@ -156,7 +179,7 @@ textarea:focus-visible {
 .install-button {
   min-height: 42px;
   border-radius: 999px;
-  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, color 160ms ease;
+  transition: var(--transition);
 }
 
 .icon-button,
@@ -168,8 +191,9 @@ textarea:focus-visible {
 
 .icon-button {
   border: 1px solid var(--line);
-  background: var(--surface);
+  background: rgba(16, 23, 18, 0.6);
   color: var(--text);
+  backdrop-filter: blur(8px);
 }
 
 .add-button,
@@ -177,8 +201,8 @@ textarea:focus-visible {
 .install-button {
   background: var(--accent);
   color: #031006;
-  font-weight: 900;
-  box-shadow: 0 12px 30px rgba(57, 255, 136, 0.2);
+  font-weight: 800;
+  box-shadow: 0 8px 24px rgba(57, 255, 136, 0.25);
 }
 
 .add-button {
@@ -189,20 +213,21 @@ textarea:focus-visible {
 .ghost-button,
 .small-button {
   border: 1px solid var(--line);
-  background: rgba(244, 255, 247, 0.04);
+  background: rgba(244, 255, 247, 0.03);
   color: var(--text);
-  font-weight: 750;
+  font-weight: 700;
+  backdrop-filter: blur(8px);
 }
 
 .primary-button,
 .ghost-button,
 .install-button {
-  padding: 0 18px;
+  padding: 0 20px;
 }
 
 .small-button {
   min-height: 34px;
-  padding: 0 10px;
+  padding: 0 12px;
   font-size: 0.78rem;
 }
 
@@ -212,8 +237,8 @@ textarea:focus-visible {
 
 .ghost-button.danger,
 .small-button.danger {
-  border-color: rgba(255, 95, 109, 0.26);
-  background: rgba(255, 95, 109, 0.08);
+  border-color: rgba(255, 95, 109, 0.2);
+  background: rgba(255, 95, 109, 0.06);
 }
 
 .icon-button:active,
@@ -224,7 +249,7 @@ textarea:focus-visible {
 .install-button:active,
 .pill-button:active,
 .nav-button:active {
-  transform: scale(0.96);
+  transform: scale(0.95);
 }
 
 @media (hover: hover) {
@@ -232,19 +257,21 @@ textarea:focus-visible {
   .ghost-button:hover,
   .small-button:hover {
     border-color: var(--line-strong);
-    background: rgba(57, 255, 136, 0.1);
+    background: rgba(57, 255, 136, 0.08);
+    color: var(--accent);
   }
 
   .add-button:hover,
   .primary-button:hover,
   .install-button:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 16px 38px rgba(57, 255, 136, 0.26);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 28px rgba(57, 255, 136, 0.35);
   }
 
   .library-card:hover {
-    transform: translateY(-3px);
-    border-color: rgba(57, 255, 136, 0.3);
+    transform: translateY(-4px);
+    border-color: var(--line-strong);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), 0 0 20px rgba(57, 255, 136, 0.06);
   }
 }
 
@@ -284,10 +311,18 @@ textarea:focus-visible {
   gap: 12px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: rgba(16, 23, 18, 0.9);
+  background: rgba(16, 23, 18, 0.75);
   padding: 0 16px;
   color: var(--muted-strong);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  backdrop-filter: blur(10px);
+  transition: var(--transition);
+}
+
+.search-box:focus-within {
+  border-color: var(--accent);
+  background: rgba(10, 16, 12, 0.85);
+  box-shadow: 0 0 16px rgba(57, 255, 136, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.02);
 }
 
 .search-box input {
@@ -302,7 +337,7 @@ textarea:focus-visible {
 .search-box input::placeholder,
 .field input::placeholder,
 .field textarea::placeholder {
-  color: rgba(185, 201, 191, 0.48);
+  color: rgba(185, 201, 191, 0.4);
 }
 
 .filter-block {
@@ -315,7 +350,7 @@ textarea:focus-visible {
   gap: 8px;
   margin: 0 -12px;
   overflow-x: auto;
-  padding: 0 12px 2px;
+  padding: 0 12px 4px;
   scrollbar-width: none;
 }
 
@@ -328,12 +363,13 @@ textarea:focus-visible {
   min-height: 34px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: rgba(244, 255, 247, 0.04);
+  background: rgba(244, 255, 247, 0.03);
   color: var(--muted-strong);
   font-size: 0.82rem;
   font-weight: 800;
-  padding: 0 12px;
-  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, color 160ms ease;
+  padding: 0 14px;
+  backdrop-filter: blur(4px);
+  transition: var(--transition);
 }
 
 .pill-row.compact .pill-button {
@@ -342,9 +378,10 @@ textarea:focus-visible {
 }
 
 .pill-button.is-active {
-  border-color: var(--line-strong);
+  border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent);
+  box-shadow: 0 0 12px rgba(57, 255, 136, 0.12);
 }
 
 .main-content {
@@ -406,10 +443,11 @@ textarea:focus-visible {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background:
-    linear-gradient(180deg, rgba(244, 255, 247, 0.045), rgba(244, 255, 247, 0.015)),
-    var(--surface);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.26);
-  transition: transform 160ms ease, border-color 160ms ease;
+    linear-gradient(180deg, rgba(244, 255, 247, 0.035), rgba(244, 255, 247, 0.005)),
+    rgba(16, 23, 18, 0.8);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(10px);
+  transition: var(--transition);
 }
 
 .select-check {
@@ -460,10 +498,10 @@ textarea:focus-visible {
 .media-slot {
   position: relative;
   display: grid;
-  min-height: 96px;
+  min-height: 80px;
   overflow: hidden;
   place-items: center;
-  aspect-ratio: 1.24 / 1;
+  aspect-ratio: 1.5 / 1;
   border-bottom: 1px solid var(--line);
   background:
     linear-gradient(135deg, rgba(57, 255, 136, 0.12), rgba(95, 208, 255, 0.08)),
@@ -545,8 +583,8 @@ textarea:focus-visible {
 
 .card-body {
   display: grid;
-  gap: 8px;
-  padding: 10px;
+  gap: 6px;
+  padding: 8px;
 }
 
 .card-topline {
@@ -596,7 +634,7 @@ textarea:focus-visible {
 
 .card-title {
   display: -webkit-box;
-  min-height: 2.4em;
+  min-height: 1.2em;
   overflow: hidden;
   margin: 0;
   -webkit-box-orient: vertical;
@@ -631,7 +669,7 @@ textarea:focus-visible {
 
 .card-notes {
   display: -webkit-box;
-  min-height: 2.72em;
+  min-height: 1.36em;
   overflow: hidden;
   margin: 0;
   -webkit-box-orient: vertical;
@@ -651,7 +689,7 @@ textarea:focus-visible {
   border-radius: var(--radius-sm);
   background: #050806;
   color: #d7ffe3;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: 'JetBrains Mono', "SFMono-Regular", Consolas, monospace;
   font-size: 0.72rem;
   line-height: 1.4;
   padding: 8px;
@@ -974,9 +1012,19 @@ textarea:focus-visible {
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: rgba(244, 255, 247, 0.055);
+  background: rgba(244, 255, 247, 0.035);
   color: var(--text);
   padding: 13px 12px;
+  transition: var(--transition);
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: var(--accent);
+  background: rgba(10, 16, 12, 0.85);
+  box-shadow: 0 0 14px rgba(57, 255, 136, 0.12);
+  outline: none;
 }
 
 .field select {
@@ -3090,7 +3138,7 @@ body {
 }
 
 .media-slot {
-  min-height: 104px;
+  min-height: 80px;
   border-bottom-color: rgba(57, 255, 136, 0.1);
   background:
     radial-gradient(circle at 50% 30%, rgba(57, 255, 136, 0.18), transparent 54%),
@@ -4008,3 +4056,62 @@ body {
   }
 }
 .fullscreen-stage { position: relative; }
+
+/* Collapsible Filter Styles */
+.app-shell:has(#journalView.is-active) .control-panel,
+.app-shell:has(#assistantView.is-active) .control-panel,
+.app-shell:has(#statusView.is-active) .control-panel,
+.app-shell:has(#statisticsView.is-active) .control-panel {
+  display: none;
+}
+
+.filter-toggle-btn.is-active {
+  background: var(--accent-soft) !important;
+  color: var(--accent) !important;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 12px rgba(57, 255, 136, 0.25);
+}
+
+.filter-content {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+@media (min-width: 760px) {
+  .filter-content {
+    grid-template-columns: repeat(3, minmax(140px, 1fr));
+    align-items: start;
+  }
+  .quick-controls {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Header & Bottom Nav Spacing Fixes */
+.view.is-active {
+  display: block;
+  padding-top: 14px;
+}
+
+.app-shell {
+  padding-bottom: calc(115px + var(--safe-bottom)) !important;
+}
+
+/* Premium Video Fallback/Placeholder */
+.video-fallback:not(.has-native-thumb):not(.has-video-thumb) {
+  background: 
+    radial-gradient(circle at center, rgba(57, 255, 136, 0.08) 0%, transparent 70%),
+    linear-gradient(135deg, #09100c 0%, #050806 100%) !important;
+  border: 1px dashed rgba(57, 255, 136, 0.2) !important;
+}
+
+.video-fallback:hover .video-play-mark {
+  transform: scale(1.1);
+  box-shadow: 0 0 24px rgba(57, 255, 136, 0.4);
+  border-color: var(--accent);
+  background: rgba(5, 12, 8, 0.95);
+}
+

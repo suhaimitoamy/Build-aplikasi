@@ -57,6 +57,8 @@ const dom = {
   sortSelect: document.querySelector("#sortSelect"),
   collectionFilterInput: document.querySelector("#collectionFilterInput"),
   showArchivedInput: document.querySelector("#showArchivedInput"),
+  filterToggleBtn: document.querySelector("#filterToggleBtn"),
+  filterContent: document.querySelector("#filterContent"),
   searchInput: document.querySelector("#searchInput"),
   focusSearchBtn: document.querySelector("#focusSearchBtn"),
   openSidebarBtn: document.querySelector("#openSidebarBtn"),
@@ -291,6 +293,14 @@ function bindEvents() {
 
   dom.focusSearchBtn.addEventListener("click", () => {
     dom.searchInput.focus();
+  });
+
+  dom.filterToggleBtn?.addEventListener("click", () => {
+    if (dom.filterContent) {
+      const isHidden = dom.filterContent.hidden;
+      dom.filterContent.hidden = !isHidden;
+      dom.filterToggleBtn.classList.toggle("is-active", isHidden);
+    }
   });
 
   dom.openSidebarBtn?.addEventListener("click", openSidebar);

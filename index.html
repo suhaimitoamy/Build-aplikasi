@@ -75,46 +75,53 @@
       </aside>
 
       <section class="control-panel" aria-label="Filter dan pencarian">
-        <label class="search-box" for="searchInput">
-          <span class="search-icon" aria-hidden="true"></span>
-          <input id="searchInput" type="search" autocomplete="off" placeholder="Cari materi, file, kategori, status...">
-        </label>
-
-        <div class="filter-block">
-          <div class="filter-label">Kategori</div>
-          <div class="pill-row" id="categoryPills" role="listbox" aria-label="Filter kategori"></div>
+        <div class="search-row" style="display: flex; gap: 8px; width: 100%;">
+          <label class="search-box" for="searchInput" style="flex: 1;">
+            <span class="search-icon" aria-hidden="true"></span>
+            <input id="searchInput" type="search" autocomplete="off" placeholder="Cari materi, file, kategori, status...">
+          </label>
+          <button class="icon-button filter-toggle-btn" id="filterToggleBtn" type="button" aria-label="Toggle Filter" style="flex: 0 0 auto; width: 46px; height: 46px;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
+          </button>
         </div>
 
-        <div class="filter-block">
-          <div class="filter-label">Status</div>
-          <div class="pill-row compact" id="statusPills" role="listbox" aria-label="Filter status belajar"></div>
-        </div>
+        <div class="filter-content" id="filterContent" hidden>
+          <div class="filter-block">
+            <div class="filter-label">Kategori</div>
+            <div class="pill-row" id="categoryPills" role="listbox" aria-label="Filter kategori"></div>
+          </div>
 
-        <div class="filter-block">
-          <div class="filter-label">Jenis File</div>
-          <div class="pill-row compact" id="typePills" role="listbox" aria-label="Filter jenis file"></div>
-        </div>
+          <div class="filter-block">
+            <div class="filter-label">Status</div>
+            <div class="pill-row compact" id="statusPills" role="listbox" aria-label="Filter status belajar"></div>
+          </div>
 
-        <div class="quick-controls" aria-label="Kontrol tambahan">
-          <label class="mini-field">
-            <span>Sortir</span>
-            <select id="sortSelect">
-              <option value="pinned-newest">Pin + Terbaru</option>
-              <option value="newest">Terbaru</option>
-              <option value="oldest">Terlama</option>
-              <option value="title-asc">Nama A-Z</option>
-              <option value="title-desc">Nama Z-A</option>
-              <option value="status">Status</option>
-            </select>
-          </label>
-          <label class="mini-field">
-            <span>Koleksi</span>
-            <input id="collectionFilterInput" type="search" placeholder="Semua koleksi">
-          </label>
-          <label class="toggle-field">
-            <input id="showArchivedInput" type="checkbox">
-            <span>Tampilkan Arsip</span>
-          </label>
+          <div class="filter-block">
+            <div class="filter-label">Jenis File</div>
+            <div class="pill-row compact" id="typePills" role="listbox" aria-label="Filter jenis file"></div>
+          </div>
+
+          <div class="quick-controls" aria-label="Kontrol tambahan">
+            <label class="mini-field">
+              <span>Sortir</span>
+              <select id="sortSelect">
+                <option value="pinned-newest">Pin + Terbaru</option>
+                <option value="newest">Terbaru</option>
+                <option value="oldest">Terlama</option>
+                <option value="title-asc">Nama A-Z</option>
+                <option value="title-desc">Nama Z-A</option>
+                <option value="status">Status</option>
+              </select>
+            </label>
+            <label class="mini-field">
+              <span>Koleksi</span>
+              <input id="collectionFilterInput" type="search" placeholder="Semua koleksi">
+            </label>
+            <label class="toggle-field">
+              <input id="showArchivedInput" type="checkbox">
+              <span>Tampilkan Arsip</span>
+            </label>
+          </div>
         </div>
       </section>
 
