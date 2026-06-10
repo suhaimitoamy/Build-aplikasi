@@ -1,4 +1,4 @@
-const CACHE_NAME = 'trading-library-v20260610-fix1';
+const CACHE_NAME = 'trading-library-v20260610-fix2';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
