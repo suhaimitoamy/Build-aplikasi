@@ -163,7 +163,8 @@ const dom = {
     journal: document.querySelector("#journalView"),
     assistant: document.querySelector("#assistantView"),
     statistics: document.querySelector("#statisticsView"),
-    status: document.querySelector("#statusView")
+    status: document.querySelector("#statusView"),
+    notes: document.querySelector("#notesView")
   },
   dialog: document.querySelector("#itemDialog"),
   form: document.querySelector("#itemForm"),
