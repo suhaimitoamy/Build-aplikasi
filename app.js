@@ -2009,17 +2009,6 @@ async function handleFilePick() {
   try {
     const pendingFiles = [];
     for (const file of files) {
-      // Validasi penolakan upload file duplikat
-      const isDuplicate = state.items.some(item => 
-        (item.mediaName && item.mediaName === file.name) ||
-        (Array.isArray(item.files) && item.files.some(f => f.name === file.name))
-      );
-      if (isDuplicate) {
-        dom.formMessage.textContent = `File "${file.name}" sudah ada di Library.`;
-        dom.fileInput.value = "";
-        return;
-      }
-
       const pending = await makePendingMedia(file, { compressImage: dom.compressImageInput?.checked });
       if (pending) pendingFiles.push(pending);
     }
