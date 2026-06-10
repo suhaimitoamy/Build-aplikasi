@@ -1,4 +1,4 @@
-const CACHE_NAME = 'trading-library-v20260610-fix2';
+const CACHE_NAME = 'trading-library-v20260610-fix3';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -38,8 +38,8 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Hanya proses metode GET, abaikan yang lain
-  if (event.request.method !== 'GET') return;
+  // Hanya proses metode GET dan URL HTTP/HTTPS (abaikan blob:, data:, dll)
+  if (event.request.method !== 'GET' || !event.request.url.startsWith('http')) return;
 
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
