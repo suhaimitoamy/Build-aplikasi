@@ -2009,6 +2009,17 @@ async function handleFilePick() {
   try {
     const pendingFiles = [];
     for (const file of files) {
+      // Validasi penolakan upload file duplikat
+      const isDuplicate = state.items.some(item => 
+        (item.mediaName && item.mediaName === file.name) ||
+        (item.files && item.files.some(f => f.name === file.name))
+      );
+      if (isDuplicate) {
+        dom.formMessage.textContent = `File "${file.name}" sudah ada di Library.`;
+        dom.fileInput.value = "";
+        return;
+      }
+
       const pending = await makePendingMedia(file, { compressImage: dom.compressImageInput?.checked });
       if (pending) pendingFiles.push(pending);
     }
@@ -5279,6 +5290,22 @@ function createAssistantMessageNode(message) {
     bubble.append(createMaterialResultList(message.itemIds));
   }
   
+  if (message.role !== "user") {
+    if (message.isFakeLoading) {
+      text.classList.add("ai-loading-text");
+    } else {
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "text-button save-ai-btn";
+      saveBtn.type = "button";
+      saveBtn.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; vertical-align: middle;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+        Simpan Jawaban
+      `;
+      saveBtn.addEventListener("click", () => saveAiResponseAsMaterial(message));
+      bubble.append(saveBtn);
+    }
+  }
+  
   wrapper.append(avatar, bubble);
   return wrapper;
 }
@@ -5309,6 +5336,25 @@ function createMaterialResultList(itemIds = []) {
     wrap.append(row);
   });
   return wrap;
+}
+
+function saveAiResponseAsMaterial(message) {
+  const shortText = message.text.replace(/\n/g, " ").slice(0, 30);
+  const newItem = {
+    id: createId(),
+    type: "Materi Baru",
+    category: "Markdown",
+    status: "Inbox",
+    title: `Jawaban AI: ${shortText}...`,
+    documentText: message.text,
+    notes: "",
+    tags: ["AI"],
+    createdAt: new Date().toISOString()
+  };
+  state.items.unshift(newItem);
+  saveItems();
+  renderGrid(dom.libraryGrid, filterGridItems(state.items));
+  alert("Jawaban berhasil disimpan ke Library sebagai Markdown!");
 }
 
 function openAiMaterialItem(item) {
@@ -5660,10 +5706,12 @@ ${question}`;
 
 async function processAssistantInput(question, surface = "assistant") {
   const isAssistantSurface = surface === "assistant";
-  let pendingId = "";
+  let loadingId = "";
   if (isAssistantSurface) {
+    if (state.isAiProcessing) return;
+    state.isAiProcessing = true;
     appendAssistantChat("user", question);
-    pendingId = appendAssistantChat("assistant", "Memproses perintah...", { transient: true }).id;
+    loadingId = appendAssistantChat("assistant", "Memproses perintah...", { transient: true }).id;
   } else {
     renderAiPopupText("Memproses perintah...");
   }

@@ -4289,6 +4289,36 @@ body {
   color: var(--text);
 }
 
+.ai-loading-text {
+  animation: pulse-text 1.5s infinite;
+  color: var(--muted);
+  font-style: italic;
+}
+
+@keyframes pulse-text {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.save-ai-btn {
+  margin-top: 12px;
+  background: var(--surface-strong);
+  color: var(--text);
+  border: 1px solid var(--line);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  display: inline-flex;
+  align-items: center;
+  transition: all 0.2s ease;
+}
+
+.save-ai-btn:hover {
+  background: var(--surface-glow);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .note-actions {
   display: flex;
   justify-content: flex-end;
