@@ -83,7 +83,6 @@ const dom = {
   codeCount: document.querySelector("#codeCount"),
   mediaCount: document.querySelector("#mediaCount"),
   dashboardGrid: document.querySelector("#dashboardGrid"),
-  statusList: document.querySelector("#statusList"),
   statisticsViewContent: document.querySelector("#statisticsViewContent"),
   notesView: document.querySelector("#notesView"),
   notesHeading: document.querySelector("#notesHeading"),
@@ -715,7 +714,7 @@ function getGridKey(container) {
 }
 
 function setView(view, shouldRender = true) {
-  state.view = ["library", "code", "media", "journal", "assistant", "statistics", "status", "notes"].includes(view) ? view : "library";
+  state.view = ["library", "code", "media", "journal", "assistant", "statistics", "notes"].includes(view) ? view : "library";
   Object.entries(dom.views).forEach(([key, section]) => {
     const isActive = key === state.view;
     section.hidden = !isActive;
@@ -786,9 +785,7 @@ function renderActiveView({ allMatches, codeItems, mediaItems }) {
     case "statistics":
       renderStatistics(allMatches);
       break;
-    case "status":
-      renderDashboard(allMatches);
-      break;
+
     case "library":
     default:
       renderGrid(dom.libraryGrid, allMatches);
@@ -1172,7 +1169,43 @@ function inferMediaKind(item) {
   return "";
 }
 
+function calculateStreak() {
+  const dates = new Set();
+  state.journals.forEach(j => { if(j && j.date) dates.add(j.date); });
+  state.personalNotes.forEach(n => { if(n && n.date) dates.add(n.date); });
+  
+  const sortedDates = Array.from(dates).sort().reverse();
+  if (sortedDates.length === 0) return 0;
+  
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
+
+  let streak = 0;
+  let currentDate = new Date(sortedDates[0]);
+  
+  if (sortedDates[0] !== todayStr && sortedDates[0] !== yesterdayStr) {
+    return 0;
+  }
+  
+  for (let i = 0; i < sortedDates.length; i++) {
+    const dStr = sortedDates[i];
+    const expectedStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}-${String(currentDate.getDate()).padStart(2, "0")}`;
+    if (dStr === expectedStr) {
+      streak++;
+      currentDate.setDate(currentDate.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
 function renderDashboard(items) {
+  if (!dom.dashboardGrid) return;
   const totals = {
     total: items.length,
     code: items.filter((item) => getItemFileType(item) === "Kode").length,
@@ -1186,48 +1219,18 @@ function renderDashboard(items) {
   };
 
   dom.dashboardGrid.replaceChildren(
-    makeStatCard("Total", totals.total),
+    makeStatCard("🔥 Streak", calculateStreak() + " Hari"),
+    makeStatCard("Total File", totals.total),
     makeStatCard("Kode", totals.code),
     makeStatCard("Gambar", totals.image),
     makeStatCard("Video", totals.video),
     makeStatCard("PDF", totals.pdf),
-    makeStatCard("Word", totals.word),
-    makeStatCard("Pin", totals.favorite),
-    makeStatCard("Arsip", totals.archived),
     makeStatCard("Jurnal", totals.journal)
   );
-
-  dom.statusList.replaceChildren();
-  const max = Math.max(1, ...statuses.map((status) => items.filter((item) => item.status === status).length));
-  statuses.forEach((status) => {
-    const count = items.filter((item) => item.status === status).length;
-    const row = document.createElement("div");
-    row.className = "status-row";
-
-    const top = document.createElement("div");
-    top.className = "status-row-top";
-
-    const name = document.createElement("span");
-    name.textContent = status;
-
-    const amount = document.createElement("strong");
-    amount.textContent = makeCount(count);
-
-    const track = document.createElement("div");
-    track.className = "progress-track";
-
-    const bar = document.createElement("div");
-    bar.className = "progress-bar";
-    bar.style.width = `${Math.round((count / max) * 100)}%`;
-
-    top.append(name, amount);
-    track.append(bar);
-    row.append(top, track);
-    dom.statusList.append(row);
-  });
 }
 
-function makeStatCard(label, value) {
+function renderStatistics(items) {
+  renderDashboard(items);
   const card = document.createElement("div");
   card.className = "stat-card";
 
@@ -5803,25 +5806,23 @@ async function interpretAiActionPlan(question) {
   try {
     saveGeminiSettings(false);
     state.geminiApiKey = normalizeApiKey(state.geminiApiKey || dom.geminiApiKeyInput?.value || "");
-    const prompt = `Tugasmu hanya menerjemahkan perintah user Indonesia menjadi JSON aksi aplikasi Trading Library Manager.
-Jangan jawab dengan markdown. Jangan beri penjelasan. Balas hanya JSON valid.
+    const prompt = `Terjemahkan perintah user ke JSON aksi Trading Library Manager.
+HANYA kembalikan objek JSON valid tanpa markdown, tanpa teks tambahan.
+Aksi yang tersedia: answer, search_materials, open_material, add_material, delete_materials, archive_materials, update_status, clear_chat.
+Status yang tersedia: ${statuses.join(", ")}
 
-Aksi yang boleh:
-- answer: jika ini pertanyaan biasa, bukan aksi aplikasi
-- search_materials: cari/tampilkan daftar materi/file
-- open_material: buka materi/file penuh di viewer aplikasi
-- add_material: tambah materi markdown baru
-- delete_materials: hapus materi/file dari aplikasi
-- archive_materials: arsipkan materi/file
-- update_status: ubah status materi/file
-- clear_chat: hapus riwayat chat
-
-Status yang boleh: ${statuses.join(", ")}
-JSON schema:
-{"action":"answer|search_materials|open_material|add_material|delete_materials|archive_materials|update_status|clear_chat","query":"kata target untuk dicari","status":"","title":"","body":"","response":"kalimat singkat untuk user"}
+Format JSON:
+{
+  "action": "string",
+  "query": "string (opsional)",
+  "status": "string (opsional)",
+  "title": "string (opsional)",
+  "body": "string (opsional)",
+  "response": "pesan ramah untuk user"
+}
 
 User: ${question}`;
-    const raw = await callAI([{ text: prompt }]);
+    const raw = await callAI([{ text: prompt }], { json: true });
     return sanitizeAiActionPlan(parseJsonFromText(raw));
   } catch {
     return null;
@@ -6245,21 +6246,25 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
   }
 }
 
-async function callAI(parts) {
+async function callAI(parts, options = {}) {
   const provider = state.aiProvider || "gemini";
-  if (provider === "gemini") return callGeminiProvider(parts);
-  return callOpenAICompatibleProvider(parts, provider);
+  if (provider === "gemini") return callGeminiProvider(parts, options);
+  return callOpenAICompatibleProvider(parts, provider, options);
 }
 
-async function callGeminiProvider(parts) {
+async function callGeminiProvider(parts, options = {}) {
   const model = encodeURIComponent(state.geminiModel || getDefaultModelForProvider("gemini"));
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(state.geminiApiKey)}`;
+  
+  const generationConfig = { temperature: 0.35, topP: 0.9, maxOutputTokens: 1400 };
+  if (options.json) generationConfig.responseMimeType = "application/json";
+
   const response = await fetchWithTimeout(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ role: "user", parts }],
-      generationConfig: { temperature: 0.35, topP: 0.9, maxOutputTokens: 1400 }
+      generationConfig
     })
   });
   if (!response.ok) throw new Error(await readApiError(response));
@@ -6269,27 +6274,32 @@ async function callGeminiProvider(parts) {
   return text;
 }
 
-async function callOpenAICompatibleProvider(parts, provider) {
+async function callOpenAICompatibleProvider(parts, provider, options = {}) {
   const endpoint = getChatCompletionEndpoint(provider);
   const content = partsToOpenAIContent(parts);
   const model = state.geminiModel || getDefaultModelForProvider(provider);
+  
+  const payload = {
+    model,
+    messages: [
+      {
+        role: "system",
+        content: "Kamu adalah asisten jurnal trading pribadi. Jawab dalam bahasa Indonesia, ringkas, praktis, dan edukatif. Jangan memberi sinyal pasti buy/sell."
+      },
+      { role: "user", content }
+    ],
+    temperature: 0.35,
+    max_tokens: 1400
+  };
+
+  if (options.json) payload.response_format = { type: "json_object" };
+
   const response = await fetchWithTimeout(endpoint, {
     method: "POST",
     mode: "cors",
     credentials: "omit",
     headers: getOpenAICompatibleHeaders(provider),
-    body: JSON.stringify({
-      model,
-      messages: [
-        {
-          role: "system",
-          content: "Kamu adalah asisten jurnal trading pribadi. Jawab dalam bahasa Indonesia, ringkas, praktis, dan edukatif. Jangan memberi sinyal pasti buy/sell."
-        },
-        { role: "user", content }
-      ],
-      temperature: 0.35,
-      max_tokens: 1400
-    })
+    body: JSON.stringify(payload)
   });
   if (!response.ok) throw new Error(await readApiError(response));
   const data = await response.json();
@@ -6482,6 +6492,15 @@ function handleNoteActions(e) {
   const id = btn.dataset.id;
   if (!id) return;
 
+  if (btn.classList.contains("toggle-collapse-btn")) {
+    const content = btn.previousElementSibling;
+    if (content && content.classList.contains("note-content")) {
+      const isCollapsed = content.classList.toggle("is-collapsed");
+      btn.textContent = isCollapsed ? "Baca Selengkapnya" : "Tutup";
+    }
+    return;
+  }
+
   if (btn.classList.contains("edit-note-btn")) {
     const note = state.personalNotes.find(n => n.id === id);
     if (note) openNoteForm(note);
@@ -6535,7 +6554,8 @@ function renderNotes() {
         <strong>${escapeHtml(note.title)}</strong>
         <span>${escapeHtml(note.date)}</span>
       </div>
-      <div class="note-content">${escapeHtml(note.content).replace(/\n/g, "<br>")}</div>
+      <div class="note-content is-collapsed">${escapeHtml(note.content).replace(/\n/g, "<br>")}</div>
+      <button class="text-button toggle-collapse-btn" type="button">Baca Selengkapnya</button>
       <div class="note-actions">
         <button class="icon-button edit-note-btn" data-id="${note.id}" type="button" aria-label="Edit">✎</button>
         <button class="icon-button delete-note-btn" data-id="${note.id}" type="button" aria-label="Hapus">🗑</button>

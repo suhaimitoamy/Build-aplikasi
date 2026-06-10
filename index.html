@@ -43,13 +43,9 @@
           <button class="icon-button side-close-button" id="closeSidebarBtn" type="button" aria-label="Tutup navigasi">×</button>
         </div>
         <nav class="side-drawer-menu" aria-label="Menu cepat">
-          <button class="side-nav-button" type="button" data-view="status">
-            <span class="nav-icon status-icon" aria-hidden="true"></span>
-            <span>Dashboard / Status</span>
-          </button>
           <button class="side-nav-button" type="button" data-view="statistics">
             <span class="nav-icon statistics-icon" aria-hidden="true"></span>
-            <span>Statistik</span>
+            <span>Dasbor & Statistik</span>
           </button>
           <button class="side-nav-button is-active" type="button" data-view="library">
             <span class="nav-icon library-icon" aria-hidden="true"></span>
@@ -384,18 +380,8 @@
         <section class="view" id="statisticsView" aria-labelledby="statisticsHeading" hidden>
           <div class="section-head">
             <div>
-              <h2 id="statisticsHeading">Statistik</h2>
-              <p id="statisticsCount">Ringkasan performa library dan jurnal</p>
-            </div>
-          </div>
-          <div class="statistics-page" id="statisticsViewContent"></div>
-        </section>
-
-        <section class="view" id="statusView" aria-labelledby="statusHeading" hidden>
-          <div class="section-head">
-            <div>
-              <h2 id="statusHeading">Dashboard / Status</h2>
-              <p id="statusCount">Ringkasan library</p>
+              <h2 id="statisticsHeading">Dasbor & Statistik</h2>
+              <p id="statisticsCount">Ringkasan performa dan kebiasaan trading Anda</p>
             </div>
             <div class="section-actions">
               <button class="ghost-button" id="exportAllBtn" type="button">Backup</button>
@@ -406,7 +392,7 @@
             </div>
           </div>
           <div class="dashboard-grid" id="dashboardGrid"></div>
-          <div class="status-list" id="statusList"></div>
+          <div class="statistics-page" id="statisticsViewContent"></div>
         </section>
 
         <section class="view" id="notesView" aria-labelledby="notesHeading" hidden>

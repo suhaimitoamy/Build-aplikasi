@@ -2,21 +2,22 @@
 
 :root {
   color-scheme: dark;
-  --bg: #050806;
-  --bg-soft: #0b100d;
-  --surface: #101712;
-  --surface-strong: #151f18;
-  --surface-glow: rgba(57, 255, 136, 0.12);
-  --line: rgba(244, 255, 247, 0.08);
-  --line-strong: rgba(57, 255, 136, 0.28);
-  --text: #f4fff7;
-  --muted: #8c9f94;
-  --muted-strong: #b9c9bf;
-  --accent: #39ff88;
-  --accent-soft: rgba(57, 255, 136, 0.14);
-  --danger: #ff5f6d;
-  --warning: #ffd166;
-  --info: #5fd0ff;
+  --bg: #0B0F19;
+  --bg-soft: #111827;
+  --surface: #1F2937;
+  --surface-strong: #374151;
+  --surface-glow: rgba(56, 189, 248, 0.12);
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(56, 189, 248, 0.28);
+  --text: #F9FAFB;
+  --muted: #9CA3AF;
+  --muted-strong: #D1D5DB;
+  --accent: #38BDF8;
+  --accent-soft: rgba(56, 189, 248, 0.14);
+  --danger: #F87171;
+  --success: #34D399;
+  --warning: #FBBF24;
+  --info: #60A5FA;
   --radius-lg: 18px;
   --radius-md: 14px;
   --radius-sm: 10px;
@@ -57,8 +58,8 @@ body {
   margin: 0;
   overflow-x: hidden;
   background:
-    radial-gradient(circle at top left, rgba(57, 255, 136, 0.12), transparent 36rem),
-    radial-gradient(circle at bottom right, rgba(95, 208, 255, 0.06), transparent 32rem),
+    radial-gradient(circle at top left, rgba(56, 189, 248, 0.12), transparent 36rem),
+    radial-gradient(circle at bottom right, rgba(167, 139, 250, 0.08), transparent 36rem),
     linear-gradient(180deg, #07100a 0%, #050806 46%, #030403 100%);
   color: var(--text);
   font-family: 'Plus Jakarta Sans', Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
@@ -4249,6 +4250,43 @@ body {
   line-height: 1.5;
   color: var(--text);
   white-space: pre-wrap;
+  transition: all 0.3s ease;
+}
+
+.note-content.is-collapsed {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  position: relative;
+}
+
+.note-content.is-collapsed::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2em;
+  background: linear-gradient(transparent, var(--surface));
+}
+
+.toggle-collapse-btn {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  margin-top: 4px;
+  align-self: flex-start;
+  transition: color 0.2s ease;
+}
+
+.toggle-collapse-btn:hover {
+  color: var(--text);
 }
 
 .note-actions {
