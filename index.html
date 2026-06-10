@@ -61,7 +61,11 @@
           </button>
           <button class="side-nav-button" type="button" data-view="journal">
             <span class="nav-icon journal-icon" aria-hidden="true"></span>
-            <span>Jurnal</span>
+            <span>Jurnal Trading</span>
+          </button>
+          <button class="side-nav-button" type="button" data-view="notes">
+            <span class="nav-icon journal-icon" aria-hidden="true"></span>
+            <span>Catatan Pribadi</span>
           </button>
           <button class="side-nav-button" type="button" data-view="assistant">
             <span class="nav-icon assistant-icon" aria-hidden="true"></span>
@@ -234,12 +238,8 @@
               </label>
             </div>
             <label class="field">
-              <span>Catatan awal</span>
-              <textarea id="journalPlanInput" rows="4" maxlength="2400" placeholder="Tulis rencana, alasan entry, atau kondisi market dulu."></textarea>
-            </label>
-            <label class="field">
-              <span>Evaluasi malam</span>
-              <textarea id="journalEvaluationInput" rows="4" maxlength="2400" placeholder="Edit lagi setelah market selesai."></textarea>
+              <span>Catatan & Evaluasi</span>
+              <textarea id="journalEvaluationInput" rows="6" maxlength="4800" placeholder="Tulis rencana, alasan entry, kondisi market, dan evaluasi trade di sini."></textarea>
             </label>
             <div class="form-grid">
               <label class="field">
@@ -308,12 +308,20 @@
               </div>
               <div class="assistant-chat-log" id="assistantChatLog" aria-live="polite"></div>
               <div class="assistant-answer assistant-live-answer" id="assistantAnswer" hidden>Jawaban asisten akan muncul di sini.</div>
-              <div class="assistant-chat-bar">
-                <label class="assistant-chat-input" for="assistantQuestionInput">
-                  <span class="chat-attach-icon" aria-hidden="true">AI</span>
-                  <textarea id="assistantQuestionInput" rows="1" maxlength="1600" placeholder="Tanya, cari materi, buka file, atau jalankan perintah..."></textarea>
-                </label>
-                <button class="primary-button assistant-send-button" id="askAssistantBtn" type="button">Kirim</button>
+              <div class="assistant-chat-bar-container">
+                <div class="assistant-quick-prompts" id="assistantQuickPrompts">
+                  <button class="quick-prompt-btn" type="button">Bantu analisa kelemahan trading saya</button>
+                  <button class="quick-prompt-btn" type="button">Apa itu Fair Value Gap?</button>
+                  <button class="quick-prompt-btn" type="button">Buka dashboard statistik</button>
+                </div>
+                <div class="assistant-chat-bar">
+                  <label class="assistant-chat-input" for="assistantQuestionInput">
+                    <textarea id="assistantQuestionInput" rows="1" maxlength="1600" placeholder="Ketik pesan untuk Smart AI..."></textarea>
+                  </label>
+                  <button class="assistant-send-button" id="askAssistantBtn" type="button" aria-label="Kirim pesan">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+                  </button>
+                </div>
               </div>
               <p class="assistant-note">AI bisa salah. Aplikasi tetap memvalidasi aksi penting sebelum dijalankan.</p>
             </section>
@@ -399,6 +407,42 @@
           </div>
           <div class="dashboard-grid" id="dashboardGrid"></div>
           <div class="status-list" id="statusList"></div>
+        </section>
+
+        <section class="view" id="notesView" aria-labelledby="notesHeading" hidden>
+          <div class="section-head">
+            <div>
+              <h2 id="notesHeading">Catatan Pribadi</h2>
+              <p id="notesCount">0 catatan</p>
+            </div>
+            <div class="section-actions">
+              <button class="primary-button" id="newNoteBtn" type="button">+ Catat Baru</button>
+            </div>
+          </div>
+
+          <form class="journal-form journal-editor" id="noteForm" hidden>
+            <input id="noteId" type="hidden">
+            <div class="form-grid">
+              <label class="field">
+                <span>Tanggal</span>
+                <input id="noteDateInput" type="date" required>
+              </label>
+            </div>
+            <label class="field">
+              <span>Judul Catatan</span>
+              <input id="noteTitleInput" type="text" maxlength="100" required placeholder="Apa yang Anda pikirkan/rasakan?">
+            </label>
+            <label class="field">
+              <span>Isi Curhat / Pengalaman / Target</span>
+              <textarea id="noteContentInput" rows="10" maxlength="8000" placeholder="Tulis keluh kesah, pengalaman trading hari ini, atau bebas apapun di sini..." required></textarea>
+            </label>
+            <div class="form-actions">
+              <button class="secondary-button" id="cancelNoteBtn" type="button">Batal</button>
+              <button class="primary-button" type="submit">Simpan Catatan</button>
+            </div>
+          </form>
+
+          <div class="journal-list" id="notesList" aria-live="polite"></div>
         </section>
       </main>
 

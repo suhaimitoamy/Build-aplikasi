@@ -7,6 +7,7 @@ const DB_VERSION = 1;
 const FILE_STORE = "files";
 const APP_VERSION = "20260519MaterialContentCache1";
 const JOURNAL_STORAGE_KEY = "tradingLibraryManager.journals.v1";
+const NOTES_STORAGE_KEY = "tradingLibraryManager.notes.v1";
 const ASSISTANT_SETTINGS_KEY = "tradingLibraryManager.assistantSettings.v1";
 const INSIGHT_CACHE_KEY = "tradingLibraryManager.insightCache.v1";
 const ASSISTANT_CHAT_KEY = "tradingLibraryManager.assistantChat.v2";
@@ -84,6 +85,17 @@ const dom = {
   dashboardGrid: document.querySelector("#dashboardGrid"),
   statusList: document.querySelector("#statusList"),
   statisticsViewContent: document.querySelector("#statisticsViewContent"),
+  notesView: document.querySelector("#notesView"),
+  notesHeading: document.querySelector("#notesHeading"),
+  notesCount: document.querySelector("#notesCount"),
+  newNoteBtn: document.querySelector("#newNoteBtn"),
+  noteForm: document.querySelector("#noteForm"),
+  noteId: document.querySelector("#noteId"),
+  noteDateInput: document.querySelector("#noteDateInput"),
+  noteTitleInput: document.querySelector("#noteTitleInput"),
+  noteContentInput: document.querySelector("#noteContentInput"),
+  cancelNoteBtn: document.querySelector("#cancelNoteBtn"),
+  notesList: document.querySelector("#notesList"),
   installBtn: document.querySelector("#installBtn"),
   exportAllBtn: document.querySelector("#exportAllBtn"),
   importBackupInput: document.querySelector("#importBackupInput"),
@@ -100,7 +112,6 @@ const dom = {
   journalResultInput: document.querySelector("#journalResultInput"),
   journalProfitInput: document.querySelector("#journalProfitInput"),
   journalLossInput: document.querySelector("#journalLossInput"),
-  journalPlanInput: document.querySelector("#journalPlanInput"),
   journalEvaluationInput: document.querySelector("#journalEvaluationInput"),
   journalMistakesInput: document.querySelector("#journalMistakesInput"),
   journalLessonsInput: document.querySelector("#journalLessonsInput"),
@@ -121,6 +132,7 @@ const dom = {
   updateInsightBtn: document.querySelector("#updateInsightBtn"),
   clearInsightBtn: document.querySelector("#clearInsightBtn"),
   askAssistantBtn: document.querySelector("#askAssistantBtn"),
+  assistantQuickPrompts: document.querySelector("#assistantQuickPrompts"),
   assistantQuestionInput: document.querySelector("#assistantQuestionInput"),
   assistantAnswer: document.querySelector("#assistantAnswer"),
   assistantChatLog: document.querySelector("#assistantChatLog"),
@@ -197,6 +209,7 @@ const dom = {
 const state = {
   items: [],
   journals: [],
+  personalNotes: [],
   category: "Semua",
   status: "Semua",
   fileType: "Semua",
@@ -258,6 +271,7 @@ async function boot() {
   await enforcePinLock();
   state.items = normalizeItems(loadItems());
   state.journals = normalizeJournals(loadJournals());
+  state.personalNotes = loadNotes();
   loadAssistantSettings();
   state.assistantChatHistory = loadAssistantChatHistory();
   loadSettings();
@@ -356,6 +370,10 @@ function bindEvents() {
   dom.setPinBtn?.addEventListener("click", setLocalPin);
   dom.clearPinBtn?.addEventListener("click", clearLocalPin);
   dom.newJournalBtn?.addEventListener("click", () => { resetJournalForm(); openJournalEditor("new"); });
+  dom.newNoteBtn?.addEventListener("click", openNoteForm);
+  dom.cancelNoteBtn?.addEventListener("click", closeNoteForm);
+  dom.noteForm?.addEventListener("submit", saveNote);
+  dom.notesList?.addEventListener("click", handleNoteActions);
   dom.resetJournalBtn?.addEventListener("click", closeJournalEditor);
   dom.journalForm?.addEventListener("submit", saveJournalForm);
   dom.journalFileInput?.addEventListener("change", handleJournalFilePick);
@@ -369,6 +387,12 @@ function bindEvents() {
   dom.updateInsightBtn?.addEventListener("click", updateInsightCache);
   dom.clearInsightBtn?.addEventListener("click", clearInsightCache);
   dom.askAssistantBtn?.addEventListener("click", askAssistant);
+  dom.assistantQuickPrompts?.addEventListener("click", (e) => {
+    if (e.target.classList.contains("quick-prompt-btn")) {
+      dom.assistantQuestionInput.value = e.target.textContent;
+      askAssistant();
+    }
+  });
   dom.clearAssistantHistoryBtn?.addEventListener("click", clearAssistantHistory);
   dom.assistantModeTabs?.addEventListener("click", (event) => {
     const button = event.target.closest(".assistant-mode-tab");
@@ -690,7 +714,7 @@ function getGridKey(container) {
 }
 
 function setView(view, shouldRender = true) {
-  state.view = ["library", "code", "media", "journal", "assistant", "statistics", "status"].includes(view) ? view : "library";
+  state.view = ["library", "code", "media", "journal", "assistant", "statistics", "status", "notes"].includes(view) ? view : "library";
   Object.entries(dom.views).forEach(([key, section]) => {
     const isActive = key === state.view;
     section.hidden = !isActive;
@@ -754,6 +778,9 @@ function renderActiveView({ allMatches, codeItems, mediaItems }) {
       break;
     case "assistant":
       renderAssistantPanel();
+      break;
+    case "notes":
+      renderNotes();
       break;
     case "statistics":
       renderStatistics(allMatches);
@@ -1305,19 +1332,93 @@ function renderStatistics(items) {
     </div>
   `;
   bindStatisticsCalendarEvents();
+  bindDashboardInteractions();
+  requestAnimationFrame(() => animateDashboard());
 }
 
 function makeStatisticsCard(label, value, type) {
-  return `<article class="stats-card"><span class="stats-icon stats-icon-${type}"></span><p>${label}</p><strong>${value}</strong></article>`;
+  return `<article class="stats-card" data-dashboard-filter="${label}"><span class="stats-icon stats-icon-${type}"></span><p>${label}</p><strong class="animate-count-up" data-target="${value}">0</strong></article>`;
 }
 
 function makeProgressStat(label, value, percent) {
   const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
-  return `<article class="progress-stat"><div class="mini-ring" style="--value:${safePercent}"><span>${safePercent}%</span></div><div><p>${label}</p><strong>${value}</strong></div></article>`;
+  return `<article class="progress-stat" data-dashboard-filter="${label}"><div class="mini-ring" style="--value:${safePercent}"><span>${safePercent}%</span></div><div><p>${label}</p><strong class="animate-count-up" data-target="${value}">0</strong></div></article>`;
 }
 
 function makeJournalStat(label, value, type) {
-  return `<article class="journal-stat"><span class="journal-stat-icon journal-stat-${type}"></span><p>${label}</p><strong>${value}</strong></article>`;
+  return `<article class="journal-stat" data-dashboard-filter="${label}"><span class="journal-stat-icon journal-stat-${type}"></span><p>${label}</p><strong>${value}</strong></article>`;
+}
+
+function animateDashboard() {
+  const duration = 1200;
+  dom.statisticsViewContent.querySelectorAll(".animate-count-up").forEach(el => {
+    const target = parseFloat(el.dataset.target);
+    if (isNaN(target)) {
+      el.textContent = el.dataset.target;
+      return;
+    }
+    const start = performance.now();
+    requestAnimationFrame(function update(time) {
+      let progress = (time - start) / duration;
+      if (progress > 1) progress = 1;
+      const ease = 1 - Math.pow(1 - progress, 3); // cubic ease-out
+      el.textContent = Math.floor(target * ease);
+      if (progress < 1) requestAnimationFrame(update);
+      else el.textContent = el.dataset.target;
+    });
+  });
+
+  dom.statisticsViewContent.querySelectorAll(".mini-ring, .donut-ring").forEach(el => {
+    const targetVal = parseFloat(el.style.getPropertyValue('--value')) || 0;
+    el.style.setProperty('--value', 0);
+    const start = performance.now();
+    requestAnimationFrame(function update(time) {
+      let progress = (time - start) / duration;
+      if (progress > 1) progress = 1;
+      const ease = 1 - Math.pow(1 - progress, 3);
+      el.style.setProperty('--value', targetVal * ease);
+      if (progress < 1) requestAnimationFrame(update);
+      else el.style.setProperty('--value', targetVal);
+    });
+  });
+  
+  dom.statisticsViewContent.querySelectorAll(".learning-progress i").forEach(el => {
+    const targetWidth = parseFloat(el.style.width) || 0;
+    el.style.width = '0%';
+    const start = performance.now();
+    requestAnimationFrame(function update(time) {
+      let progress = (time - start) / duration;
+      if (progress > 1) progress = 1;
+      const ease = 1 - Math.pow(1 - progress, 3);
+      el.style.width = (targetWidth * ease) + '%';
+      if (progress < 1) requestAnimationFrame(update);
+      else el.style.width = targetWidth + '%';
+    });
+  });
+}
+
+function bindDashboardInteractions() {
+  dom.statisticsViewContent.querySelectorAll("[data-dashboard-filter]").forEach(card => {
+    card.addEventListener("click", () => {
+      const filter = card.dataset.dashboardFilter;
+      if (filter === "Jurnal") {
+        setView("journal");
+      } else if (filter === "Video" || filter === "PDF" || filter === "Gambar") {
+        dom.filterType.value = filter;
+        dom.filterStatus.value = "Semua";
+        dom.filterSort.value = "Terbaru";
+        setView("library");
+      } else if (filter === "Belum dibaca") {
+        dom.filterStatus.value = "Belum dibaca";
+        dom.filterType.value = "Semua";
+        setView("library");
+      } else if (filter === "Sudah dibaca") {
+        dom.filterStatus.value = "Selesai"; // Approximation
+        dom.filterType.value = "Semua";
+        setView("library");
+      }
+    });
+  });
 }
 
 function getJournalStatistics() {
@@ -4224,7 +4325,6 @@ function normalizeJournals(journals) {
     result: "Belum selesai",
     profit: 0,
     loss: 0,
-    plan: "",
     evaluation: "",
     mistakes: "",
     lessons: "",
@@ -4313,7 +4413,6 @@ function getJournalFormData() {
     result: dom.journalResultInput.value,
     profit: parseTradeAmount(dom.journalProfitInput?.value),
     loss: parseTradeAmount(dom.journalLossInput?.value),
-    plan: dom.journalPlanInput.value.trim(),
     evaluation: dom.journalEvaluationInput.value.trim(),
     mistakes: dom.journalMistakesInput.value.trim(),
     lessons: dom.journalLessonsInput.value.trim(),
@@ -4330,7 +4429,7 @@ function getJournalFormData() {
 }
 
 function buildJournalRevisionHistory(existing, next, now) {
-  const changed = ["title", "market", "setup", "result", "profit", "loss", "plan", "evaluation", "mistakes", "lessons", "emotion"]
+  const changed = ["title", "market", "setup", "result", "profit", "loss", "evaluation", "mistakes", "lessons", "emotion"]
     .some((key) => String(existing?.[key] || "") !== String(next?.[key] || ""));
   if (!changed) return existing.revisionHistory || [];
   return [
@@ -4339,7 +4438,6 @@ function buildJournalRevisionHistory(existing, next, now) {
       at: now,
       title: existing.title,
       result: existing.result,
-      plan: existing.plan,
       evaluation: existing.evaluation,
       mistakes: existing.mistakes,
       lessons: existing.lessons
@@ -4488,7 +4586,6 @@ function createJournalCard(journal, expanded = false) {
 
   const body = document.createElement("div");
   body.className = "journal-body";
-  body.append(makeJournalTextBlock("Catatan awal", journal.plan));
   body.append(makeJournalTextBlock("Evaluasi", journal.evaluation));
   body.append(makeJournalTextBlock("Kesalahan", journal.mistakes));
   body.append(makeJournalTextBlock("Pelajaran", journal.lessons));
@@ -4619,7 +4716,7 @@ function journalAttachmentToItem(journal, attachment) {
     type: attachment.kind === "image" ? "Gambar Chart" : attachment.kind === "video" ? "Video Pembelajaran" : "Dokumen",
     category: attachment.kind === "image" ? "Gambar Chart" : attachment.kind === "video" ? "Video" : getCategoryForDocumentType(attachment.documentType),
     status: journal.result || "Belum dibaca",
-    notes: journal.plan || journal.evaluation || "Lampiran jurnal",
+    notes: journal.evaluation || "Lampiran jurnal",
     mediaUrl: "",
     fileId: attachment.fileId,
     mediaKind: attachment.kind,
@@ -4645,8 +4742,10 @@ function editJournal(id) {
   dom.journalResultInput.value = journal.result || "Belum selesai";
   if (dom.journalProfitInput) dom.journalProfitInput.value = journal.profit ? String(journal.profit) : "";
   if (dom.journalLossInput) dom.journalLossInput.value = journal.loss ? String(journal.loss) : "";
-  dom.journalPlanInput.value = journal.plan || "";
-  dom.journalEvaluationInput.value = journal.evaluation || "";
+  let combinedNotes = journal.evaluation || "";
+  if (journal.plan && !journal.evaluation) combinedNotes = journal.plan;
+  else if (journal.plan && journal.evaluation) combinedNotes = "Rencana:\n" + journal.plan + "\n\nEvaluasi:\n" + journal.evaluation;
+  dom.journalEvaluationInput.value = combinedNotes;
   dom.journalMistakesInput.value = journal.mistakes || "";
   dom.journalLessonsInput.value = journal.lessons || "";
   dom.journalEmotionInput.value = journal.emotion || "";
@@ -5134,8 +5233,9 @@ function renderAssistantChatLog() {
       <strong>Tulis bebas.</strong>
       <span>Asisten akan otomatis membaca maksud: coaching, cari materi, buka file, atau aksi aplikasi.</span>
     `;
-    dom.assistantChatLog.append(empty);
+    if (dom.assistantQuickPrompts) dom.assistantQuickPrompts.style.display = "flex";
   } else {
+    if (dom.assistantQuickPrompts) dom.assistantQuickPrompts.style.display = "none";
     const fragment = document.createDocumentFragment();
     state.assistantChatHistory.forEach((message) => fragment.append(createAssistantMessageNode(message)));
     dom.assistantChatLog.append(fragment);
@@ -5147,26 +5247,36 @@ function renderAssistantChatLog() {
 }
 
 function createAssistantMessageNode(message) {
-  const bubble = document.createElement("article");
-  bubble.className = `assistant-message ${message.role === "user" ? "is-user" : "is-assistant"}`;
+  const wrapper = document.createElement("div");
+  wrapper.className = `assistant-message-wrapper ${message.role === "user" ? "is-user" : "is-ai"}`;
 
-  const label = document.createElement("span");
-  label.className = "assistant-message-label";
-  label.textContent = message.role === "user" ? "Anda" : "Asisten";
+  const avatar = document.createElement("div");
+  avatar.className = "assistant-avatar";
+  if (message.role === "user") {
+    avatar.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>`;
+  } else {
+    avatar.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7v1a1 1 0 0 1-1 1h-1v1a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5v-1H3a1 1 0 0 1-1-1v-1a7 7 0 0 1 7-7h1V5.73A2 2 0 0 1 12 2z"></path><path d="M9 13v2"></path><path d="M15 13v2"></path></svg>`;
+  }
+
+  const bubble = document.createElement("article");
+  bubble.className = `assistant-message ${message.role === "user" ? "is-user" : "is-ai"}`;
 
   const text = document.createElement("div");
   text.className = "assistant-message-text";
-  text.textContent = message.text || "";
+  
+  let formattedText = escapeHtml(message.text || "");
+  formattedText = formattedText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  formattedText = formattedText.replace(/\n\* (.*?)/g, '<br>• $1');
+  formattedText = formattedText.replace(/\n- (.*?)/g, '<br>• $1');
+  text.innerHTML = formattedText;
 
-  const time = document.createElement("small");
-  time.textContent = formatMessageTime(message.createdAt);
-
-  bubble.append(label, text);
+  bubble.append(text);
   if (message.kind === "materials" && Array.isArray(message.itemIds)) {
     bubble.append(createMaterialResultList(message.itemIds));
   }
-  bubble.append(time);
-  return bubble;
+  
+  wrapper.append(avatar, bubble);
+  return wrapper;
 }
 
 function formatMessageTime(value) {
@@ -6307,6 +6417,133 @@ function blobToDataUrl(blob) {
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
+}
+
+// --- PERSONAL NOTES LOGIC ---
+function loadNotes() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(NOTES_STORAGE_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveNotes(notes = state.personalNotes) {
+  localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(notes));
+}
+
+function openNoteForm(note = null) {
+  dom.noteForm.hidden = false;
+  if (note && note.id) {
+    dom.noteId.value = note.id;
+    dom.noteDateInput.value = note.date || "";
+    dom.noteTitleInput.value = note.title || "";
+    dom.noteContentInput.value = note.content || "";
+  } else {
+    dom.noteForm.reset();
+    dom.noteId.value = "";
+    const now = new Date();
+    dom.noteDateInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  }
+}
+
+function closeNoteForm() {
+  dom.noteForm.hidden = true;
+  dom.noteForm.reset();
+}
+
+function saveNote(e) {
+  e.preventDefault();
+  const id = dom.noteId.value || crypto.randomUUID();
+  const date = dom.noteDateInput.value;
+  const title = dom.noteTitleInput.value.trim();
+  const content = dom.noteContentInput.value.trim();
+
+  const existingIndex = state.personalNotes.findIndex(n => n.id === id);
+  const noteData = { id, date, title, content };
+
+  if (existingIndex >= 0) {
+    state.personalNotes[existingIndex] = noteData;
+  } else {
+    state.personalNotes.unshift(noteData);
+  }
+
+  saveNotes();
+  closeNoteForm();
+  renderNotes();
+  showToast("Catatan disimpan");
+}
+
+function handleNoteActions(e) {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  const id = btn.dataset.id;
+  if (!id) return;
+
+  if (btn.classList.contains("edit-note-btn")) {
+    const note = state.personalNotes.find(n => n.id === id);
+    if (note) openNoteForm(note);
+  } else if (btn.classList.contains("delete-note-btn")) {
+    if (confirm("Hapus catatan ini?")) {
+      state.personalNotes = state.personalNotes.filter(n => n.id !== id);
+      saveNotes();
+      renderNotes();
+      showToast("Catatan dihapus");
+    }
+  } else if (btn.classList.contains("roast-note-btn")) {
+    roastNote(id);
+  }
+}
+
+function roastNote(id) {
+  const note = state.personalNotes.find(n => n.id === id);
+  if (!note) return;
+  
+  const prompt = `Ini adalah catatan pribadi saya:\nJudul: ${note.title}\nIsi: ${note.content}\n\nInstruksi: Anda adalah pelatih trading/mentor yang SANGAT GALAK, SARKASTIK, TEGAS, dan KEJAM. Evaluasi tulisan saya ini. Maki kesalahan saya agar mental saya kuat, dan berikan motivasi negatif agar saya disiplin. Jangan bersikap sopan, jadilah brutal tapi membangun (Tough Love).`;
+  
+  dom.assistantQuestionInput.value = prompt;
+  setView("assistant");
+  if (typeof askAssistant === "function") {
+    askAssistant();
+  } else {
+    dom.askAssistantBtn?.click();
+  }
+}
+
+function renderNotes() {
+  if (!dom.notesList || state.view !== "notes") return;
+  
+  dom.notesCount.textContent = `${state.personalNotes.length} catatan`;
+  dom.notesList.replaceChildren();
+
+  if (state.personalNotes.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.innerHTML = `<p>Belum ada catatan pribadi.</p>`;
+    dom.notesList.append(empty);
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  state.personalNotes.forEach(note => {
+    const article = document.createElement("article");
+    article.className = "note-card";
+    article.innerHTML = `
+      <div class="note-header">
+        <strong>${escapeHtml(note.title)}</strong>
+        <span>${escapeHtml(note.date)}</span>
+      </div>
+      <div class="note-content">${escapeHtml(note.content).replace(/\n/g, "<br>")}</div>
+      <div class="note-actions">
+        <button class="icon-button edit-note-btn" data-id="${note.id}" type="button" aria-label="Edit">✎</button>
+        <button class="icon-button delete-note-btn" data-id="${note.id}" type="button" aria-label="Hapus">🗑</button>
+        <button class="roast-note-btn" data-id="${note.id}" type="button">🔥 Evaluasi Kasar AI</button>
+      </div>
+    `;
+    fragment.append(article);
+  });
+  dom.notesList.append(fragment);
 }
 
 boot();
