@@ -3595,7 +3595,12 @@ async function loadItemObjectUrl(item, scope = "rendered") {
   const record = await getFileRecord(item.fileId);
   if (!record?.blob) return "";
 
-  const url = URL.createObjectURL(record.blob);
+  let blob = record.blob;
+  if (record.type && blob.type !== record.type) {
+    blob = new Blob([blob], { type: record.type });
+  }
+
+  const url = URL.createObjectURL(blob);
   if (scope === "preview") {
     revokePreviewObjectUrl();
     state.previewObjectUrl = url;
@@ -4899,6 +4904,7 @@ function handleProviderChange() {
 
 function getDefaultModelForProvider(provider) {
   const defaults = {
+    deepseek: "deepseek-chat",
     gemini: "gemini-2.0-flash",
     groq: "llama-3.1-8b-instant",
     openrouter: "google/gemini-2.0-flash-001",
@@ -4911,6 +4917,7 @@ function getDefaultModelForProvider(provider) {
 
 function getProviderLabel(provider) {
   const labels = {
+    deepseek: "DeepSeek",
     gemini: "Gemini",
     groq: "Groq",
     openrouter: "OpenRouter",
@@ -6356,6 +6363,7 @@ async function callOpenAICompatibleProvider(parts, provider, options = {}) {
 }
 
 function getChatCompletionEndpoint(provider) {
+  if (provider === "deepseek") return "https://api.deepseek.com/chat/completions";
   if (provider === "groq") return "https://api.groq.com/openai/v1/chat/completions";
   if (provider === "openrouter") return "https://openrouter.ai/api/v1/chat/completions";
   if (provider === "mistral") return "https://api.mistral.ai/v1/chat/completions";
