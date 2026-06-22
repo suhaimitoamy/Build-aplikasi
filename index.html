@@ -272,34 +272,14 @@
         </section>
 
         <section class="view" id="assistantView" aria-labelledby="assistantHeading" hidden>
-          <div class="section-head assistant-title-head">
-            <div>
-              <h2 id="assistantHeading">Ruang Asisten</h2>
-              <p id="assistantCount">Coach trading, cari materi, dan aksi aplikasi</p>
-            </div>
+          
           </div>
 
           <div class="assistant-workspace">
-            <section class="assistant-hero-card">
-              <div class="assistant-hero-copy">
-                <span class="assistant-kicker">Trading Workspace</span>
-                <h3>Ruang Asisten</h3>
-                <p>Tulis bebas. Asisten otomatis memahami apakah kamu ingin coaching, mencari materi, membuka file, atau menjalankan aksi aplikasi.</p>
-              </div>
-              <div class="assistant-unified-route" id="assistantModeTabs" aria-label="Routing asisten">
-                <button class="assistant-mode-tab is-active" type="button" data-assistant-mode="coach" aria-selected="true">Coach Trading</button>
-                <button class="assistant-mode-tab" type="button" data-assistant-mode="material" aria-selected="false">Cari Materi</button>
-                <button class="assistant-mode-tab" type="button" data-assistant-mode="action" aria-selected="false">Aksi Aplikasi</button>
-              </div>
-              <div class="assistant-shortcut-menu" id="assistantShortcutMenu" aria-label="Menu cepat asisten"></div>
-            </section>
+            
 
             <section class="assistant-card assistant-chat-card assistant-room-card">
-              <div class="assistant-chat-headline">
-                <div>
-                  <span id="assistantModeLabel">Smart Assistant</span>
-                  <h3>Chat Asisten</h3>
-                </div>
+              
                 <button class="ghost-button danger" id="clearAssistantHistoryBtn" type="button">Hapus Riwayat</button>
               </div>
               <div class="assistant-chat-log" id="assistantChatLog" aria-live="polite"></div>
@@ -311,6 +291,14 @@
                   <button class="quick-prompt-btn" type="button">Buka dashboard statistik</button>
                 </div>
                 <div class="assistant-chat-bar">
+                  <div class="mode-dropdown-container">
+                    <button id="modeToggleBtn" class="assistant-mode-toggle" type="button">🧠</button>
+                    <div id="modeDropdownMenu" class="mode-dropdown-menu hidden" id="assistantModeTabs">
+                      <button class="assistant-mode-tab is-active" type="button" data-assistant-mode="coach">Coach Trading</button>
+                      <button class="assistant-mode-tab" type="button" data-assistant-mode="material">Cari Materi</button>
+                      <button class="assistant-mode-tab" type="button" data-assistant-mode="action">Aksi Aplikasi</button>
+                    </div>
+                  </div>
                   <label class="assistant-chat-input" for="assistantQuestionInput">
                     <textarea id="assistantQuestionInput" rows="1" maxlength="1600" placeholder="Ketik pesan untuk Smart AI..."></textarea>
                   </label>
