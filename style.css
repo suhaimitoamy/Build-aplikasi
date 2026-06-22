@@ -2,18 +2,18 @@
 
 :root {
   color-scheme: dark;
-  --bg: #0B0F19;
-  --bg-soft: #111827;
-  --surface: #1F2937;
-  --surface-strong: #374151;
-  --surface-glow: rgba(56, 189, 248, 0.12);
+  --bg: #0a0a0a;
+  --bg-soft: #141414;
+  --surface: #1e1e1e;
+  --surface-strong: #2a2a2a;
+  --surface-glow: rgba(212, 175, 55, 0.12);
   --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(56, 189, 248, 0.28);
+  --line-strong: rgba(212, 175, 55, 0.28);
   --text: #F9FAFB;
   --muted: #9CA3AF;
   --muted-strong: #D1D5DB;
-  --accent: #38BDF8;
-  --accent-soft: rgba(56, 189, 248, 0.14);
+  --accent: #d4af37;
+  --accent-soft: rgba(212, 175, 55, 0.14);
   --danger: #F87171;
   --success: #34D399;
   --warning: #FBBF24;
