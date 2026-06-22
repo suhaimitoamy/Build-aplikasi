@@ -410,6 +410,10 @@ textarea:focus-visible {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+  position: relative;
+  z-index: 100;
+  opacity: 1 !important;
+  visibility: visible !important;
 }
 
 .scan-storage-message {
