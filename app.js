@@ -2400,7 +2400,7 @@ async function deleteItemsByIds(ids) {
   try {
     await Promise.all(selectedItems.map((item) => item.fileId ? deleteFileRecord(item.fileId) : Promise.resolve()));
   } catch {
-    window.alert("Sebagian file belum bisa dihapus dari IndexedDB.");
+    window.showToast("Sebagian file belum bisa dihapus dari IndexedDB.");
     return false;
   }
   state.items = state.items.filter((entry) => !uniqueIds.includes(entry.id));
@@ -4103,7 +4103,7 @@ function escapeHtml(value) {
 }
 
 async function exportBackup() {
-  if (!window.JSZip) return window.alert("JSZip belum termuat.");
+  if (!window.JSZip) return window.showToast("JSZip belum termuat.");
   try {
     const zip = new window.JSZip();
     zip.file("data.json", JSON.stringify({ version: BACKUP_VERSION, exportedAt: new Date().toISOString(), items: state.items, journals: state.journals, insightCache: state.insightCache }, null, 2));
@@ -4123,12 +4123,12 @@ async function exportBackup() {
     const blob = await zip.generateAsync({ type: "blob" });
     await downloadBlob(blob, `trading-library-backup-${new Date().toISOString().slice(0, 10)}.zip`);
   } catch {
-    window.alert("Backup gagal dibuat. Cek izin penyimpanan atau ruang perangkat.");
+    window.showToast("Backup gagal dibuat. Cek izin penyimpanan atau ruang perangkat.");
   }
 }
 
 async function exportSingleItem(id) {
-  if (!window.JSZip) return window.alert("JSZip belum termuat.");
+  if (!window.JSZip) return window.showToast("JSZip belum termuat.");
   const item = state.items.find((entry) => entry.id === id);
   if (!item) return;
   const zip = new window.JSZip();
@@ -4200,9 +4200,9 @@ async function importBackup(event) {
     saveJournals();
     saveInsightCache();
     render();
-    window.alert("Restore selesai.");
+    window.showToast("Restore selesai.");
   } catch {
-    window.alert("Backup belum bisa dibaca.");
+    window.showToast("Backup belum bisa dibaca.");
   }
 }
 
@@ -4235,18 +4235,18 @@ function sanitizeFileName(value) {
 async function setLocalPin() {
   const pin = window.prompt("Masukkan PIN baru minimal 4 angka:");
   if (!pin) return;
-  if (!/^\d{4,}$/.test(pin)) return window.alert("PIN minimal 4 angka.");
+  if (!/^\d{4,}$/.test(pin)) return window.showToast("PIN minimal 4 angka.");
   localStorage.setItem(PIN_KEY, await hashText(pin));
-  window.alert("PIN aktif.");
+  window.showToast("PIN aktif.");
 }
 
 async function clearLocalPin() {
   if (!localStorage.getItem(PIN_KEY)) return;
   const pin = window.prompt("Masukkan PIN lama untuk menghapus:");
   if (!pin) return;
-  if (await hashText(pin) !== localStorage.getItem(PIN_KEY)) return window.alert("PIN salah.");
+  if (await hashText(pin) !== localStorage.getItem(PIN_KEY)) return window.showToast("PIN salah.");
   localStorage.removeItem(PIN_KEY);
-  window.alert("PIN dihapus.");
+  window.showToast("PIN dihapus.");
 }
 
 async function enforcePinLock() {
@@ -5360,7 +5360,7 @@ function saveAiResponseAsMaterial(message) {
   state.items.unshift(newItem);
   saveItems();
   renderGrid(dom.libraryGrid, filterGridItems(state.items));
-  alert("Jawaban berhasil disimpan ke Library sebagai Markdown!");
+  showToast("Jawaban berhasil disimpan ke Library sebagai Markdown!");
 }
 
 function openAiMaterialItem(item) {
@@ -6623,3 +6623,32 @@ function renderNotes() {
 }
 
 boot();
+
+
+// GLOBAL AMY FX JS SYSTEM
+window.showToast = function(msg) {
+  if ('vibrate' in navigator) navigator.vibrate(50);
+  let container = document.getElementById('amy-toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'amy-toast-container';
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  toast.className = 'amy-toast';
+  toast.innerHTML = msg;
+  container.appendChild(toast);
+  setTimeout(() => { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 3000);
+};
+
+window.triggerHaptic = function(pattern) {
+  if ('vibrate' in navigator) navigator.vibrate(pattern || 20);
+};
+
+if (!window.amyHapticListenerAdded) {
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('button, a, .clickable, .nav-btn, .action-btn, .card');
+      if (btn) window.triggerHaptic(20);
+    });
+    window.amyHapticListenerAdded = true;
+}
