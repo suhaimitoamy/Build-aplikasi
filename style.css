@@ -4384,8 +4384,9 @@ body {
     height: calc(100vh - 80px); /* minus bottom nav */
     padding: 0;
     margin: 0;
+    overflow-y: auto;
 }
-.assistant-card {
+.assistant-chat-card {
     border: none !important;
     background: transparent !important;
     padding: 0 !important;
