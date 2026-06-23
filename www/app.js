@@ -7,6 +7,7 @@ const DB_VERSION = 1;
 const FILE_STORE = "files";
 const APP_VERSION = "20260519MaterialContentCache1";
 const JOURNAL_STORAGE_KEY = "tradingLibraryManager.journals.v1";
+const NOTES_STORAGE_KEY = "tradingLibraryManager.notes.v1";
 const ASSISTANT_SETTINGS_KEY = "tradingLibraryManager.assistantSettings.v1";
 const INSIGHT_CACHE_KEY = "tradingLibraryManager.insightCache.v1";
 const ASSISTANT_CHAT_KEY = "tradingLibraryManager.assistantChat.v2";
@@ -82,8 +83,18 @@ const dom = {
   codeCount: document.querySelector("#codeCount"),
   mediaCount: document.querySelector("#mediaCount"),
   dashboardGrid: document.querySelector("#dashboardGrid"),
-  statusList: document.querySelector("#statusList"),
   statisticsViewContent: document.querySelector("#statisticsViewContent"),
+  notesView: document.querySelector("#notesView"),
+  notesHeading: document.querySelector("#notesHeading"),
+  notesCount: document.querySelector("#notesCount"),
+  newNoteBtn: document.querySelector("#newNoteBtn"),
+  noteForm: document.querySelector("#noteForm"),
+  noteId: document.querySelector("#noteId"),
+  noteDateInput: document.querySelector("#noteDateInput"),
+  noteTitleInput: document.querySelector("#noteTitleInput"),
+  noteContentInput: document.querySelector("#noteContentInput"),
+  cancelNoteBtn: document.querySelector("#cancelNoteBtn"),
+  notesList: document.querySelector("#notesList"),
   installBtn: document.querySelector("#installBtn"),
   exportAllBtn: document.querySelector("#exportAllBtn"),
   importBackupInput: document.querySelector("#importBackupInput"),
@@ -100,7 +111,6 @@ const dom = {
   journalResultInput: document.querySelector("#journalResultInput"),
   journalProfitInput: document.querySelector("#journalProfitInput"),
   journalLossInput: document.querySelector("#journalLossInput"),
-  journalPlanInput: document.querySelector("#journalPlanInput"),
   journalEvaluationInput: document.querySelector("#journalEvaluationInput"),
   journalMistakesInput: document.querySelector("#journalMistakesInput"),
   journalLessonsInput: document.querySelector("#journalLessonsInput"),
@@ -121,6 +131,7 @@ const dom = {
   updateInsightBtn: document.querySelector("#updateInsightBtn"),
   clearInsightBtn: document.querySelector("#clearInsightBtn"),
   askAssistantBtn: document.querySelector("#askAssistantBtn"),
+  assistantQuickPrompts: document.querySelector("#assistantQuickPrompts"),
   assistantQuestionInput: document.querySelector("#assistantQuestionInput"),
   assistantAnswer: document.querySelector("#assistantAnswer"),
   assistantChatLog: document.querySelector("#assistantChatLog"),
@@ -151,7 +162,8 @@ const dom = {
     journal: document.querySelector("#journalView"),
     assistant: document.querySelector("#assistantView"),
     statistics: document.querySelector("#statisticsView"),
-    status: document.querySelector("#statusView")
+
+    notes: document.querySelector("#notesView")
   },
   dialog: document.querySelector("#itemDialog"),
   form: document.querySelector("#itemForm"),
@@ -197,6 +209,7 @@ const dom = {
 const state = {
   items: [],
   journals: [],
+  personalNotes: [],
   category: "Semua",
   status: "Semua",
   fileType: "Semua",
@@ -258,6 +271,7 @@ async function boot() {
   await enforcePinLock();
   state.items = normalizeItems(loadItems());
   state.journals = normalizeJournals(loadJournals());
+  state.personalNotes = loadNotes();
   loadAssistantSettings();
   state.assistantChatHistory = loadAssistantChatHistory();
   loadSettings();
@@ -356,6 +370,10 @@ function bindEvents() {
   dom.setPinBtn?.addEventListener("click", setLocalPin);
   dom.clearPinBtn?.addEventListener("click", clearLocalPin);
   dom.newJournalBtn?.addEventListener("click", () => { resetJournalForm(); openJournalEditor("new"); });
+  dom.newNoteBtn?.addEventListener("click", openNoteForm);
+  dom.cancelNoteBtn?.addEventListener("click", closeNoteForm);
+  dom.noteForm?.addEventListener("submit", saveNote);
+  dom.notesList?.addEventListener("click", handleNoteActions);
   dom.resetJournalBtn?.addEventListener("click", closeJournalEditor);
   dom.journalForm?.addEventListener("submit", saveJournalForm);
   dom.journalFileInput?.addEventListener("change", handleJournalFilePick);
@@ -369,6 +387,12 @@ function bindEvents() {
   dom.updateInsightBtn?.addEventListener("click", updateInsightCache);
   dom.clearInsightBtn?.addEventListener("click", clearInsightCache);
   dom.askAssistantBtn?.addEventListener("click", askAssistant);
+  dom.assistantQuickPrompts?.addEventListener("click", (e) => {
+    if (e.target.classList.contains("quick-prompt-btn")) {
+      dom.assistantQuestionInput.value = e.target.textContent;
+      askAssistant();
+    }
+  });
   dom.clearAssistantHistoryBtn?.addEventListener("click", clearAssistantHistory);
   dom.assistantModeTabs?.addEventListener("click", (event) => {
     const button = event.target.closest(".assistant-mode-tab");
@@ -690,7 +714,7 @@ function getGridKey(container) {
 }
 
 function setView(view, shouldRender = true) {
-  state.view = ["library", "code", "media", "journal", "assistant", "statistics", "status"].includes(view) ? view : "library";
+  state.view = ["library", "code", "media", "journal", "assistant", "statistics", "notes"].includes(view) ? view : "library";
   Object.entries(dom.views).forEach(([key, section]) => {
     const isActive = key === state.view;
     section.hidden = !isActive;
@@ -755,12 +779,13 @@ function renderActiveView({ allMatches, codeItems, mediaItems }) {
     case "assistant":
       renderAssistantPanel();
       break;
+    case "notes":
+      renderNotes();
+      break;
     case "statistics":
       renderStatistics(allMatches);
       break;
-    case "status":
-      renderDashboard(allMatches);
-      break;
+
     case "library":
     default:
       renderGrid(dom.libraryGrid, allMatches);
@@ -1144,7 +1169,43 @@ function inferMediaKind(item) {
   return "";
 }
 
+function calculateStreak() {
+  const dates = new Set();
+  state.journals.forEach(j => { if(j && j.date) dates.add(j.date); });
+  state.personalNotes.forEach(n => { if(n && n.date) dates.add(n.date); });
+  
+  const sortedDates = Array.from(dates).sort().reverse();
+  if (sortedDates.length === 0) return 0;
+  
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
+
+  let streak = 0;
+  let currentDate = new Date(sortedDates[0]);
+  
+  if (sortedDates[0] !== todayStr && sortedDates[0] !== yesterdayStr) {
+    return 0;
+  }
+  
+  for (let i = 0; i < sortedDates.length; i++) {
+    const dStr = sortedDates[i];
+    const expectedStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}-${String(currentDate.getDate()).padStart(2, "0")}`;
+    if (dStr === expectedStr) {
+      streak++;
+      currentDate.setDate(currentDate.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
 function renderDashboard(items) {
+  if (!dom.dashboardGrid) return;
   const totals = {
     total: items.length,
     code: items.filter((item) => getItemFileType(item) === "Kode").length,
@@ -1158,48 +1219,18 @@ function renderDashboard(items) {
   };
 
   dom.dashboardGrid.replaceChildren(
-    makeStatCard("Total", totals.total),
+    makeStatCard("🔥 Streak", calculateStreak() + " Hari"),
+    makeStatCard("Total File", totals.total),
     makeStatCard("Kode", totals.code),
     makeStatCard("Gambar", totals.image),
     makeStatCard("Video", totals.video),
     makeStatCard("PDF", totals.pdf),
-    makeStatCard("Word", totals.word),
-    makeStatCard("Pin", totals.favorite),
-    makeStatCard("Arsip", totals.archived),
     makeStatCard("Jurnal", totals.journal)
   );
-
-  dom.statusList.replaceChildren();
-  const max = Math.max(1, ...statuses.map((status) => items.filter((item) => item.status === status).length));
-  statuses.forEach((status) => {
-    const count = items.filter((item) => item.status === status).length;
-    const row = document.createElement("div");
-    row.className = "status-row";
-
-    const top = document.createElement("div");
-    top.className = "status-row-top";
-
-    const name = document.createElement("span");
-    name.textContent = status;
-
-    const amount = document.createElement("strong");
-    amount.textContent = makeCount(count);
-
-    const track = document.createElement("div");
-    track.className = "progress-track";
-
-    const bar = document.createElement("div");
-    bar.className = "progress-bar";
-    bar.style.width = `${Math.round((count / max) * 100)}%`;
-
-    top.append(name, amount);
-    track.append(bar);
-    row.append(top, track);
-    dom.statusList.append(row);
-  });
 }
 
-function makeStatCard(label, value) {
+function renderStatistics(items) {
+  renderDashboard(items);
   const card = document.createElement("div");
   card.className = "stat-card";
 
@@ -1305,19 +1336,93 @@ function renderStatistics(items) {
     </div>
   `;
   bindStatisticsCalendarEvents();
+  bindDashboardInteractions();
+  requestAnimationFrame(() => animateDashboard());
 }
 
 function makeStatisticsCard(label, value, type) {
-  return `<article class="stats-card"><span class="stats-icon stats-icon-${type}"></span><p>${label}</p><strong>${value}</strong></article>`;
+  return `<article class="stats-card" data-dashboard-filter="${label}"><span class="stats-icon stats-icon-${type}"></span><p>${label}</p><strong class="animate-count-up" data-target="${value}">0</strong></article>`;
 }
 
 function makeProgressStat(label, value, percent) {
   const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
-  return `<article class="progress-stat"><div class="mini-ring" style="--value:${safePercent}"><span>${safePercent}%</span></div><div><p>${label}</p><strong>${value}</strong></div></article>`;
+  return `<article class="progress-stat" data-dashboard-filter="${label}"><div class="mini-ring" style="--value:${safePercent}"><span>${safePercent}%</span></div><div><p>${label}</p><strong class="animate-count-up" data-target="${value}">0</strong></div></article>`;
 }
 
 function makeJournalStat(label, value, type) {
-  return `<article class="journal-stat"><span class="journal-stat-icon journal-stat-${type}"></span><p>${label}</p><strong>${value}</strong></article>`;
+  return `<article class="journal-stat" data-dashboard-filter="${label}"><span class="journal-stat-icon journal-stat-${type}"></span><p>${label}</p><strong>${value}</strong></article>`;
+}
+
+function animateDashboard() {
+  const duration = 1200;
+  dom.statisticsViewContent.querySelectorAll(".animate-count-up").forEach(el => {
+    const target = parseFloat(el.dataset.target);
+    if (isNaN(target)) {
+      el.textContent = el.dataset.target;
+      return;
+    }
+    const start = performance.now();
+    requestAnimationFrame(function update(time) {
+      let progress = (time - start) / duration;
+      if (progress > 1) progress = 1;
+      const ease = 1 - Math.pow(1 - progress, 3); // cubic ease-out
+      el.textContent = Math.floor(target * ease);
+      if (progress < 1) requestAnimationFrame(update);
+      else el.textContent = el.dataset.target;
+    });
+  });
+
+  dom.statisticsViewContent.querySelectorAll(".mini-ring, .donut-ring").forEach(el => {
+    const targetVal = parseFloat(el.style.getPropertyValue('--value')) || 0;
+    el.style.setProperty('--value', 0);
+    const start = performance.now();
+    requestAnimationFrame(function update(time) {
+      let progress = (time - start) / duration;
+      if (progress > 1) progress = 1;
+      const ease = 1 - Math.pow(1 - progress, 3);
+      el.style.setProperty('--value', targetVal * ease);
+      if (progress < 1) requestAnimationFrame(update);
+      else el.style.setProperty('--value', targetVal);
+    });
+  });
+  
+  dom.statisticsViewContent.querySelectorAll(".learning-progress i").forEach(el => {
+    const targetWidth = parseFloat(el.style.width) || 0;
+    el.style.width = '0%';
+    const start = performance.now();
+    requestAnimationFrame(function update(time) {
+      let progress = (time - start) / duration;
+      if (progress > 1) progress = 1;
+      const ease = 1 - Math.pow(1 - progress, 3);
+      el.style.width = (targetWidth * ease) + '%';
+      if (progress < 1) requestAnimationFrame(update);
+      else el.style.width = targetWidth + '%';
+    });
+  });
+}
+
+function bindDashboardInteractions() {
+  dom.statisticsViewContent.querySelectorAll("[data-dashboard-filter]").forEach(card => {
+    card.addEventListener("click", () => {
+      const filter = card.dataset.dashboardFilter;
+      if (filter === "Jurnal") {
+        setView("journal");
+      } else if (filter === "Video" || filter === "PDF" || filter === "Gambar") {
+        dom.filterType.value = filter;
+        dom.filterStatus.value = "Semua";
+        dom.filterSort.value = "Terbaru";
+        setView("library");
+      } else if (filter === "Belum dibaca") {
+        dom.filterStatus.value = "Belum dibaca";
+        dom.filterType.value = "Semua";
+        setView("library");
+      } else if (filter === "Sudah dibaca") {
+        dom.filterStatus.value = "Selesai"; // Approximation
+        dom.filterType.value = "Semua";
+        setView("library");
+      }
+    });
+  });
 }
 
 function getJournalStatistics() {
@@ -1904,6 +2009,16 @@ async function handleFilePick() {
   try {
     const pendingFiles = [];
     for (const file of files) {
+      const isDuplicate = state.items.some(item =>
+        (item.mediaName && item.mediaName === file.name) ||
+        (item.files && item.files.some(f => f.name === file.name))
+      );
+      if (isDuplicate) {
+        dom.formMessage.textContent = `File "${file.name}" sudah ada di Library.`;
+        dom.fileInput.value = "";
+        return;
+      }
+
       const pending = await makePendingMedia(file, { compressImage: dom.compressImageInput?.checked });
       if (pending) pendingFiles.push(pending);
     }
@@ -2285,7 +2400,7 @@ async function deleteItemsByIds(ids) {
   try {
     await Promise.all(selectedItems.map((item) => item.fileId ? deleteFileRecord(item.fileId) : Promise.resolve()));
   } catch {
-    window.alert("Sebagian file belum bisa dihapus dari IndexedDB.");
+    window.showToast("Sebagian file belum bisa dihapus dari IndexedDB.");
     return false;
   }
   state.items = state.items.filter((entry) => !uniqueIds.includes(entry.id));
@@ -3480,7 +3595,12 @@ async function loadItemObjectUrl(item, scope = "rendered") {
   const record = await getFileRecord(item.fileId);
   if (!record?.blob) return "";
 
-  const url = URL.createObjectURL(record.blob);
+  let blob = record.blob;
+  if (record.type && blob.type !== record.type) {
+    blob = new Blob([blob], { type: record.type });
+  }
+
+  const url = URL.createObjectURL(blob);
   if (scope === "preview") {
     revokePreviewObjectUrl();
     state.previewObjectUrl = url;
@@ -3983,7 +4103,7 @@ function escapeHtml(value) {
 }
 
 async function exportBackup() {
-  if (!window.JSZip) return window.alert("JSZip belum termuat.");
+  if (!window.JSZip) return window.showToast("JSZip belum termuat.");
   try {
     const zip = new window.JSZip();
     zip.file("data.json", JSON.stringify({ version: BACKUP_VERSION, exportedAt: new Date().toISOString(), items: state.items, journals: state.journals, insightCache: state.insightCache }, null, 2));
@@ -4003,12 +4123,12 @@ async function exportBackup() {
     const blob = await zip.generateAsync({ type: "blob" });
     await downloadBlob(blob, `trading-library-backup-${new Date().toISOString().slice(0, 10)}.zip`);
   } catch {
-    window.alert("Backup gagal dibuat. Cek izin penyimpanan atau ruang perangkat.");
+    window.showToast("Backup gagal dibuat. Cek izin penyimpanan atau ruang perangkat.");
   }
 }
 
 async function exportSingleItem(id) {
-  if (!window.JSZip) return window.alert("JSZip belum termuat.");
+  if (!window.JSZip) return window.showToast("JSZip belum termuat.");
   const item = state.items.find((entry) => entry.id === id);
   if (!item) return;
   const zip = new window.JSZip();
@@ -4080,9 +4200,9 @@ async function importBackup(event) {
     saveJournals();
     saveInsightCache();
     render();
-    window.alert("Restore selesai.");
+    window.showToast("Restore selesai.");
   } catch {
-    window.alert("Backup belum bisa dibaca.");
+    window.showToast("Backup belum bisa dibaca.");
   }
 }
 
@@ -4115,18 +4235,18 @@ function sanitizeFileName(value) {
 async function setLocalPin() {
   const pin = window.prompt("Masukkan PIN baru minimal 4 angka:");
   if (!pin) return;
-  if (!/^\d{4,}$/.test(pin)) return window.alert("PIN minimal 4 angka.");
+  if (!/^\d{4,}$/.test(pin)) return window.showToast("PIN minimal 4 angka.");
   localStorage.setItem(PIN_KEY, await hashText(pin));
-  window.alert("PIN aktif.");
+  window.showToast("PIN aktif.");
 }
 
 async function clearLocalPin() {
   if (!localStorage.getItem(PIN_KEY)) return;
   const pin = window.prompt("Masukkan PIN lama untuk menghapus:");
   if (!pin) return;
-  if (await hashText(pin) !== localStorage.getItem(PIN_KEY)) return window.alert("PIN salah.");
+  if (await hashText(pin) !== localStorage.getItem(PIN_KEY)) return window.showToast("PIN salah.");
   localStorage.removeItem(PIN_KEY);
-  window.alert("PIN dihapus.");
+  window.showToast("PIN dihapus.");
 }
 
 async function enforcePinLock() {
@@ -4224,7 +4344,6 @@ function normalizeJournals(journals) {
     result: "Belum selesai",
     profit: 0,
     loss: 0,
-    plan: "",
     evaluation: "",
     mistakes: "",
     lessons: "",
@@ -4313,7 +4432,6 @@ function getJournalFormData() {
     result: dom.journalResultInput.value,
     profit: parseTradeAmount(dom.journalProfitInput?.value),
     loss: parseTradeAmount(dom.journalLossInput?.value),
-    plan: dom.journalPlanInput.value.trim(),
     evaluation: dom.journalEvaluationInput.value.trim(),
     mistakes: dom.journalMistakesInput.value.trim(),
     lessons: dom.journalLessonsInput.value.trim(),
@@ -4330,7 +4448,7 @@ function getJournalFormData() {
 }
 
 function buildJournalRevisionHistory(existing, next, now) {
-  const changed = ["title", "market", "setup", "result", "profit", "loss", "plan", "evaluation", "mistakes", "lessons", "emotion"]
+  const changed = ["title", "market", "setup", "result", "profit", "loss", "evaluation", "mistakes", "lessons", "emotion"]
     .some((key) => String(existing?.[key] || "") !== String(next?.[key] || ""));
   if (!changed) return existing.revisionHistory || [];
   return [
@@ -4339,7 +4457,6 @@ function buildJournalRevisionHistory(existing, next, now) {
       at: now,
       title: existing.title,
       result: existing.result,
-      plan: existing.plan,
       evaluation: existing.evaluation,
       mistakes: existing.mistakes,
       lessons: existing.lessons
@@ -4488,7 +4605,6 @@ function createJournalCard(journal, expanded = false) {
 
   const body = document.createElement("div");
   body.className = "journal-body";
-  body.append(makeJournalTextBlock("Catatan awal", journal.plan));
   body.append(makeJournalTextBlock("Evaluasi", journal.evaluation));
   body.append(makeJournalTextBlock("Kesalahan", journal.mistakes));
   body.append(makeJournalTextBlock("Pelajaran", journal.lessons));
@@ -4619,7 +4735,7 @@ function journalAttachmentToItem(journal, attachment) {
     type: attachment.kind === "image" ? "Gambar Chart" : attachment.kind === "video" ? "Video Pembelajaran" : "Dokumen",
     category: attachment.kind === "image" ? "Gambar Chart" : attachment.kind === "video" ? "Video" : getCategoryForDocumentType(attachment.documentType),
     status: journal.result || "Belum dibaca",
-    notes: journal.plan || journal.evaluation || "Lampiran jurnal",
+    notes: journal.evaluation || "Lampiran jurnal",
     mediaUrl: "",
     fileId: attachment.fileId,
     mediaKind: attachment.kind,
@@ -4645,8 +4761,10 @@ function editJournal(id) {
   dom.journalResultInput.value = journal.result || "Belum selesai";
   if (dom.journalProfitInput) dom.journalProfitInput.value = journal.profit ? String(journal.profit) : "";
   if (dom.journalLossInput) dom.journalLossInput.value = journal.loss ? String(journal.loss) : "";
-  dom.journalPlanInput.value = journal.plan || "";
-  dom.journalEvaluationInput.value = journal.evaluation || "";
+  let combinedNotes = journal.evaluation || "";
+  if (journal.plan && !journal.evaluation) combinedNotes = journal.plan;
+  else if (journal.plan && journal.evaluation) combinedNotes = "Rencana:\n" + journal.plan + "\n\nEvaluasi:\n" + journal.evaluation;
+  dom.journalEvaluationInput.value = combinedNotes;
   dom.journalMistakesInput.value = journal.mistakes || "";
   dom.journalLessonsInput.value = journal.lessons || "";
   dom.journalEmotionInput.value = journal.emotion || "";
@@ -4786,6 +4904,7 @@ function handleProviderChange() {
 
 function getDefaultModelForProvider(provider) {
   const defaults = {
+    deepseek: "deepseek-chat",
     gemini: "gemini-2.0-flash",
     groq: "llama-3.1-8b-instant",
     openrouter: "google/gemini-2.0-flash-001",
@@ -4798,6 +4917,7 @@ function getDefaultModelForProvider(provider) {
 
 function getProviderLabel(provider) {
   const labels = {
+    deepseek: "DeepSeek",
     gemini: "Gemini",
     groq: "Groq",
     openrouter: "OpenRouter",
@@ -5134,8 +5254,9 @@ function renderAssistantChatLog() {
       <strong>Tulis bebas.</strong>
       <span>Asisten akan otomatis membaca maksud: coaching, cari materi, buka file, atau aksi aplikasi.</span>
     `;
-    dom.assistantChatLog.append(empty);
+    if (dom.assistantQuickPrompts) dom.assistantQuickPrompts.style.display = "flex";
   } else {
+    if (dom.assistantQuickPrompts) dom.assistantQuickPrompts.style.display = "none";
     const fragment = document.createDocumentFragment();
     state.assistantChatHistory.forEach((message) => fragment.append(createAssistantMessageNode(message)));
     dom.assistantChatLog.append(fragment);
@@ -5147,26 +5268,52 @@ function renderAssistantChatLog() {
 }
 
 function createAssistantMessageNode(message) {
-  const bubble = document.createElement("article");
-  bubble.className = `assistant-message ${message.role === "user" ? "is-user" : "is-assistant"}`;
+  const wrapper = document.createElement("div");
+  wrapper.className = `assistant-message-wrapper ${message.role === "user" ? "is-user" : "is-ai"}`;
 
-  const label = document.createElement("span");
-  label.className = "assistant-message-label";
-  label.textContent = message.role === "user" ? "Anda" : "Asisten";
+  const avatar = document.createElement("div");
+  avatar.className = "assistant-avatar";
+  if (message.role === "user") {
+    avatar.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>`;
+  } else {
+    avatar.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7v1a1 1 0 0 1-1 1h-1v1a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5v-1H3a1 1 0 0 1-1-1v-1a7 7 0 0 1 7-7h1V5.73A2 2 0 0 1 12 2z"></path><path d="M9 13v2"></path><path d="M15 13v2"></path></svg>`;
+  }
+
+  const bubble = document.createElement("article");
+  bubble.className = `assistant-message ${message.role === "user" ? "is-user" : "is-ai"}`;
 
   const text = document.createElement("div");
   text.className = "assistant-message-text";
-  text.textContent = message.text || "";
+  
+  let formattedText = escapeHtml(message.text || "");
+  formattedText = formattedText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  formattedText = formattedText.replace(/\n\* (.*?)/g, '<br>• $1');
+  formattedText = formattedText.replace(/\n- (.*?)/g, '<br>• $1');
+  text.innerHTML = formattedText;
 
-  const time = document.createElement("small");
-  time.textContent = formatMessageTime(message.createdAt);
-
-  bubble.append(label, text);
+  bubble.append(text);
   if (message.kind === "materials" && Array.isArray(message.itemIds)) {
     bubble.append(createMaterialResultList(message.itemIds));
   }
-  bubble.append(time);
-  return bubble;
+  
+  if (message.role !== "user") {
+    if (message.isFakeLoading) {
+      text.classList.add("ai-loading-text");
+    } else {
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "text-button save-ai-btn";
+      saveBtn.type = "button";
+      saveBtn.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; vertical-align: middle;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+        Simpan Jawaban
+      `;
+      saveBtn.addEventListener("click", () => saveAiResponseAsMaterial(message));
+      bubble.append(saveBtn);
+    }
+  }
+  
+  wrapper.append(avatar, bubble);
+  return wrapper;
 }
 
 function formatMessageTime(value) {
@@ -5195,6 +5342,25 @@ function createMaterialResultList(itemIds = []) {
     wrap.append(row);
   });
   return wrap;
+}
+
+function saveAiResponseAsMaterial(message) {
+  const shortText = message.text.replace(/\n/g, " ").slice(0, 30);
+  const newItem = {
+    id: createId(),
+    type: "Materi Baru",
+    category: "Markdown",
+    status: "Inbox",
+    title: `Jawaban AI: ${shortText}...`,
+    documentText: message.text,
+    notes: "",
+    tags: ["AI"],
+    createdAt: new Date().toISOString()
+  };
+  state.items.unshift(newItem);
+  saveItems();
+  renderGrid(dom.libraryGrid, filterGridItems(state.items));
+  showToast("Jawaban berhasil disimpan ke Library sebagai Markdown!");
 }
 
 function openAiMaterialItem(item) {
@@ -5546,10 +5712,12 @@ ${question}`;
 
 async function processAssistantInput(question, surface = "assistant") {
   const isAssistantSurface = surface === "assistant";
-  let pendingId = "";
+  let loadingId = "";
   if (isAssistantSurface) {
+    if (state.isAiProcessing) return;
+    state.isAiProcessing = true;
     appendAssistantChat("user", question);
-    pendingId = appendAssistantChat("assistant", "Memproses perintah...", { transient: true }).id;
+    loadingId = appendAssistantChat("assistant", "Memproses perintah...", { transient: true }).id;
   } else {
     renderAiPopupText("Memproses perintah...");
   }
@@ -5692,25 +5860,23 @@ async function interpretAiActionPlan(question) {
   try {
     saveGeminiSettings(false);
     state.geminiApiKey = normalizeApiKey(state.geminiApiKey || dom.geminiApiKeyInput?.value || "");
-    const prompt = `Tugasmu hanya menerjemahkan perintah user Indonesia menjadi JSON aksi aplikasi Trading Library Manager.
-Jangan jawab dengan markdown. Jangan beri penjelasan. Balas hanya JSON valid.
+    const prompt = `Terjemahkan perintah user ke JSON aksi Trading Library Manager.
+HANYA kembalikan objek JSON valid tanpa markdown, tanpa teks tambahan.
+Aksi yang tersedia: answer, search_materials, open_material, add_material, delete_materials, archive_materials, update_status, clear_chat.
+Status yang tersedia: ${statuses.join(", ")}
 
-Aksi yang boleh:
-- answer: jika ini pertanyaan biasa, bukan aksi aplikasi
-- search_materials: cari/tampilkan daftar materi/file
-- open_material: buka materi/file penuh di viewer aplikasi
-- add_material: tambah materi markdown baru
-- delete_materials: hapus materi/file dari aplikasi
-- archive_materials: arsipkan materi/file
-- update_status: ubah status materi/file
-- clear_chat: hapus riwayat chat
-
-Status yang boleh: ${statuses.join(", ")}
-JSON schema:
-{"action":"answer|search_materials|open_material|add_material|delete_materials|archive_materials|update_status|clear_chat","query":"kata target untuk dicari","status":"","title":"","body":"","response":"kalimat singkat untuk user"}
+Format JSON:
+{
+  "action": "string",
+  "query": "string (opsional)",
+  "status": "string (opsional)",
+  "title": "string (opsional)",
+  "body": "string (opsional)",
+  "response": "pesan ramah untuk user"
+}
 
 User: ${question}`;
-    const raw = await callAI([{ text: prompt }]);
+    const raw = await callAI([{ text: prompt }], { json: true });
     return sanitizeAiActionPlan(parseJsonFromText(raw));
   } catch {
     return null;
@@ -6134,21 +6300,25 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
   }
 }
 
-async function callAI(parts) {
+async function callAI(parts, options = {}) {
   const provider = state.aiProvider || "gemini";
-  if (provider === "gemini") return callGeminiProvider(parts);
-  return callOpenAICompatibleProvider(parts, provider);
+  if (provider === "gemini") return callGeminiProvider(parts, options);
+  return callOpenAICompatibleProvider(parts, provider, options);
 }
 
-async function callGeminiProvider(parts) {
+async function callGeminiProvider(parts, options = {}) {
   const model = encodeURIComponent(state.geminiModel || getDefaultModelForProvider("gemini"));
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(state.geminiApiKey)}`;
+  
+  const generationConfig = { temperature: 0.35, topP: 0.9, maxOutputTokens: 1400 };
+  if (options.json) generationConfig.responseMimeType = "application/json";
+
   const response = await fetchWithTimeout(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ role: "user", parts }],
-      generationConfig: { temperature: 0.35, topP: 0.9, maxOutputTokens: 1400 }
+      generationConfig
     })
   });
   if (!response.ok) throw new Error(await readApiError(response));
@@ -6158,27 +6328,32 @@ async function callGeminiProvider(parts) {
   return text;
 }
 
-async function callOpenAICompatibleProvider(parts, provider) {
+async function callOpenAICompatibleProvider(parts, provider, options = {}) {
   const endpoint = getChatCompletionEndpoint(provider);
   const content = partsToOpenAIContent(parts);
   const model = state.geminiModel || getDefaultModelForProvider(provider);
+  
+  const payload = {
+    model,
+    messages: [
+      {
+        role: "system",
+        content: "Kamu adalah asisten jurnal trading pribadi. Jawab dalam bahasa Indonesia, ringkas, praktis, dan edukatif. Jangan memberi sinyal pasti buy/sell."
+      },
+      { role: "user", content }
+    ],
+    temperature: 0.35,
+    max_tokens: 1400
+  };
+
+  if (options.json) payload.response_format = { type: "json_object" };
+
   const response = await fetchWithTimeout(endpoint, {
     method: "POST",
     mode: "cors",
     credentials: "omit",
     headers: getOpenAICompatibleHeaders(provider),
-    body: JSON.stringify({
-      model,
-      messages: [
-        {
-          role: "system",
-          content: "Kamu adalah asisten jurnal trading pribadi. Jawab dalam bahasa Indonesia, ringkas, praktis, dan edukatif. Jangan memberi sinyal pasti buy/sell."
-        },
-        { role: "user", content }
-      ],
-      temperature: 0.35,
-      max_tokens: 1400
-    })
+    body: JSON.stringify(payload)
   });
   if (!response.ok) throw new Error(await readApiError(response));
   const data = await response.json();
@@ -6188,6 +6363,7 @@ async function callOpenAICompatibleProvider(parts, provider) {
 }
 
 function getChatCompletionEndpoint(provider) {
+  if (provider === "deepseek") return "https://api.deepseek.com/chat/completions";
   if (provider === "groq") return "https://api.groq.com/openai/v1/chat/completions";
   if (provider === "openrouter") return "https://openrouter.ai/api/v1/chat/completions";
   if (provider === "mistral") return "https://api.mistral.ai/v1/chat/completions";
@@ -6309,4 +6485,170 @@ function blobToDataUrl(blob) {
   });
 }
 
+// --- PERSONAL NOTES LOGIC ---
+function loadNotes() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(NOTES_STORAGE_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveNotes(notes = state.personalNotes) {
+  localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(notes));
+}
+
+function openNoteForm(note = null) {
+  dom.noteForm.hidden = false;
+  if (note && note.id) {
+    dom.noteId.value = note.id;
+    dom.noteDateInput.value = note.date || "";
+    dom.noteTitleInput.value = note.title || "";
+    dom.noteContentInput.value = note.content || "";
+  } else {
+    dom.noteForm.reset();
+    dom.noteId.value = "";
+    const now = new Date();
+    dom.noteDateInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  }
+}
+
+function closeNoteForm() {
+  dom.noteForm.hidden = true;
+  dom.noteForm.reset();
+}
+
+function saveNote(e) {
+  e.preventDefault();
+  const id = dom.noteId.value || crypto.randomUUID();
+  const date = dom.noteDateInput.value;
+  const title = dom.noteTitleInput.value.trim();
+  const content = dom.noteContentInput.value.trim();
+
+  const existingIndex = state.personalNotes.findIndex(n => n.id === id);
+  const noteData = { id, date, title, content };
+
+  if (existingIndex >= 0) {
+    state.personalNotes[existingIndex] = noteData;
+  } else {
+    state.personalNotes.unshift(noteData);
+  }
+
+  saveNotes();
+  closeNoteForm();
+  renderNotes();
+  showToast("Catatan disimpan");
+}
+
+function handleNoteActions(e) {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  const id = btn.dataset.id;
+  if (!id) return;
+
+  if (btn.classList.contains("toggle-collapse-btn")) {
+    const content = btn.previousElementSibling;
+    if (content && content.classList.contains("note-content")) {
+      const isCollapsed = content.classList.toggle("is-collapsed");
+      btn.textContent = isCollapsed ? "Baca Selengkapnya" : "Tutup";
+    }
+    return;
+  }
+
+  if (btn.classList.contains("edit-note-btn")) {
+    const note = state.personalNotes.find(n => n.id === id);
+    if (note) openNoteForm(note);
+  } else if (btn.classList.contains("delete-note-btn")) {
+    if (confirm("Hapus catatan ini?")) {
+      state.personalNotes = state.personalNotes.filter(n => n.id !== id);
+      saveNotes();
+      renderNotes();
+      showToast("Catatan dihapus");
+    }
+  } else if (btn.classList.contains("roast-note-btn")) {
+    roastNote(id);
+  }
+}
+
+function roastNote(id) {
+  const note = state.personalNotes.find(n => n.id === id);
+  if (!note) return;
+  
+  const prompt = `Ini adalah catatan pribadi saya:\nJudul: ${note.title}\nIsi: ${note.content}\n\nInstruksi: Anda adalah pelatih trading/mentor yang SANGAT GALAK, SARKASTIK, TEGAS, dan KEJAM. Evaluasi tulisan saya ini. Maki kesalahan saya agar mental saya kuat, dan berikan motivasi negatif agar saya disiplin. Jangan bersikap sopan, jadilah brutal tapi membangun (Tough Love).`;
+  
+  dom.assistantQuestionInput.value = prompt;
+  setView("assistant");
+  if (typeof askAssistant === "function") {
+    askAssistant();
+  } else {
+    dom.askAssistantBtn?.click();
+  }
+}
+
+function renderNotes() {
+  if (!dom.notesList || state.view !== "notes") return;
+  
+  dom.notesCount.textContent = `${state.personalNotes.length} catatan`;
+  dom.notesList.replaceChildren();
+
+  if (state.personalNotes.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.innerHTML = `<p>Belum ada catatan pribadi.</p>`;
+    dom.notesList.append(empty);
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  state.personalNotes.forEach(note => {
+    const article = document.createElement("article");
+    article.className = "note-card";
+    article.innerHTML = `
+      <div class="note-header">
+        <strong>${escapeHtml(note.title)}</strong>
+        <span>${escapeHtml(note.date)}</span>
+      </div>
+      <div class="note-content is-collapsed">${escapeHtml(note.content).replace(/\n/g, "<br>")}</div>
+      <button class="text-button toggle-collapse-btn" type="button">Baca Selengkapnya</button>
+      <div class="note-actions">
+        <button class="icon-button edit-note-btn" data-id="${note.id}" type="button" aria-label="Edit">✎</button>
+        <button class="icon-button delete-note-btn" data-id="${note.id}" type="button" aria-label="Hapus">🗑</button>
+        <button class="roast-note-btn" data-id="${note.id}" type="button">🔥 Evaluasi Kasar AI</button>
+      </div>
+    `;
+    fragment.append(article);
+  });
+  dom.notesList.append(fragment);
+}
+
 boot();
+
+
+// GLOBAL AMY FX JS SYSTEM
+window.showToast = function(msg) {
+  if ('vibrate' in navigator) navigator.vibrate(50);
+  let container = document.getElementById('amy-toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'amy-toast-container';
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  toast.className = 'amy-toast';
+  toast.innerHTML = msg;
+  container.appendChild(toast);
+  setTimeout(() => { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 3000);
+};
+
+window.triggerHaptic = function(pattern) {
+  if ('vibrate' in navigator) navigator.vibrate(pattern || 20);
+};
+
+if (!window.amyHapticListenerAdded) {
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('button, a, .clickable, .nav-btn, .action-btn, .card');
+      if (btn) window.triggerHaptic(20);
+    });
+    window.amyHapticListenerAdded = true;
+}
