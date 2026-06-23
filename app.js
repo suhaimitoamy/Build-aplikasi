@@ -4155,21 +4155,25 @@ async function importBackup(event) {
     for (const item of incomingItems) {
       if (!item.fileId) continue;
       const fileEntry = Object.values(zip.files).find((entry) => !entry.dir && entry.name.startsWith(`files/${item.fileId}-`));
-      if (!fileEntry) continue;
-      const blob = await fileEntry.async("blob");
-      await putFileRecord({
-        id: item.fileId,
-        itemId: item.id,
-        blob,
-        name: item.mediaName || fileEntry.name.split("-").slice(1).join("-") || "file",
-        type: item.mediaType || blob.type || getMimeForFileExtension(item.mediaName),
-        size: item.mediaSize || blob.size,
-        kind: item.mediaKind || inferMediaKind(item),
-        documentType: item.documentType || (isDocumentItem(item) ? getDocumentType(item) : ""),
-        documentText: item.documentText || "",
-        fileHash: item.fileHash || "",
-        uploadedAt: item.uploadedAt || new Date().toISOString()
-      });
+      try {
+        const blob = await fileEntry.async("blob");
+        await putFileRecord({
+          id: item.fileId,
+          itemId: item.id,
+          blob,
+          name: item.mediaName || fileEntry.name.split("-").slice(1).join("-") || "file",
+          type: item.mediaType || blob.type || getMimeForFileExtension(item.mediaName),
+          size: item.mediaSize || blob.size,
+          kind: item.mediaKind || inferMediaKind(item),
+          documentType: item.documentType || (isDocumentItem(item) ? getDocumentType(item) : ""),
+          documentText: item.documentText || "",
+          fileHash: item.fileHash || "",
+          uploadedAt: item.uploadedAt || new Date().toISOString()
+        });
+      } catch (err) {
+        console.warn("Skipping corrupt media in item", item.id, err);
+        continue;
+      }
     }
     const existingJournalsById = new Map(state.journals.map((journal) => [journal.id, journal]));
     for (const journal of incomingJournals) existingJournalsById.set(journal.id, journal);
@@ -4177,20 +4181,24 @@ async function importBackup(event) {
       for (const attachment of journal.attachments || []) {
         if (!attachment.fileId) continue;
         const fileEntry = Object.values(zip.files).find((entry) => !entry.dir && entry.name.startsWith(`files/${attachment.fileId}-`));
-        if (!fileEntry) continue;
-        const blob = await fileEntry.async("blob");
-        await putFileRecord({
-          id: attachment.fileId,
-          itemId: journal.id,
-          blob,
-          name: attachment.name || fileEntry.name.split("-").slice(1).join("-") || "file",
-          type: attachment.type || blob.type || getMimeForFileExtension(attachment.name),
-          size: attachment.size || blob.size,
-          kind: attachment.kind || inferMediaKind({ mediaName: attachment.name, mediaType: attachment.type }),
-          documentType: attachment.documentType || "",
-          documentText: attachment.documentText || "",
-          uploadedAt: attachment.uploadedAt || new Date().toISOString()
-        });
+        try {
+          const blob = await fileEntry.async("blob");
+          await putFileRecord({
+            id: attachment.fileId,
+            itemId: journal.id,
+            blob,
+            name: attachment.name || fileEntry.name.split("-").slice(1).join("-") || "file",
+            type: attachment.type || blob.type || getMimeForFileExtension(attachment.name),
+            size: attachment.size || blob.size,
+            kind: attachment.kind || inferMediaKind({ mediaName: attachment.name, mediaType: attachment.type }),
+            documentType: attachment.documentType || "",
+            documentText: attachment.documentText || "",
+            uploadedAt: attachment.uploadedAt || new Date().toISOString()
+          });
+        } catch (err) {
+          console.warn("Skipping corrupt media in journal attachment", attachment.fileId, err);
+          continue;
+        }
       }
     }
     state.items = [...existingById.values()];
@@ -4217,15 +4225,20 @@ async function downloadBlob(blob, filename) {
     }
   }
 
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.rel = "noopener";
-  document.body.append(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 3000);
+  // Fallback for Android WebView: Convert to Data URL instead of Blob URL
+  // because DownloadManager cannot handle blob:// URLs.
+  const reader = new FileReader();
+  reader.onloadend = () => {
+    const dataUrl = reader.result;
+    const link = document.createElement("a");
+    link.href = dataUrl;
+    link.download = filename;
+    link.rel = "noopener";
+    document.body.append(link);
+    link.click();
+    link.remove();
+  };
+  reader.readAsDataURL(blob);
 }
 
 function sanitizeFileName(value) {
@@ -4471,30 +4484,35 @@ async function saveJournalForm(event) {
   try {
     for (const pending of state.pendingJournalFiles || []) {
       const fileId = createId();
-      await putFileRecord({
-        id: fileId,
-        itemId: journal.id,
-        blob: pending.file,
-        name: pending.name,
-        type: pending.type,
-        size: pending.size,
-        kind: pending.kind,
-        documentType: pending.documentType || "",
-        documentText: pending.documentText || "",
-        fileHash: pending.fileHash || "",
-        uploadedAt: new Date().toISOString()
-      });
-      createdFileIds.push(fileId);
-      journal.attachments.push({
-        fileId,
-        name: pending.name,
-        type: pending.type,
-        size: pending.size,
-        kind: pending.kind,
-        documentType: pending.documentType || "",
-        documentText: pending.documentText || "",
-        uploadedAt: new Date().toISOString()
-      });
+      try {
+        await putFileRecord({
+          id: fileId,
+          itemId: journal.id,
+          blob: pending.file,
+          name: pending.name,
+          type: pending.type,
+          size: pending.size,
+          kind: pending.kind,
+          documentType: pending.documentType || "",
+          documentText: pending.documentText || "",
+          fileHash: pending.fileHash || "",
+          uploadedAt: new Date().toISOString()
+        });
+        createdFileIds.push(fileId);
+        journal.attachments.push({
+          fileId,
+          name: pending.name,
+          type: pending.type,
+          size: pending.size,
+          kind: pending.kind,
+          documentType: pending.documentType || "",
+          documentText: pending.documentText || "",
+          uploadedAt: new Date().toISOString()
+        });
+      } catch (err) {
+        console.warn("Gagal menyimpan media:", pending.name, err);
+        window.showToast("Gagal menyimpan " + pending.name + ". Ukuran terlalu besar.");
+      }
     }
     const exists = state.journals.some((entry) => entry.id === journal.id);
     state.journals = exists
