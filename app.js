@@ -4231,18 +4231,7 @@ async function downloadBlob(blob, filename) {
     return;
   }
 
-  // 2. Try Native Share for mobile browsers
-  const file = new File([blob], filename, { type: blob.type || "application/zip" });
-  if (navigator.canShare?.({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: filename });
-      return;
-    } catch (error) {
-      if (error?.name === "AbortError") return;
-    }
-  }
-
-  // 3. Fallback for Desktop/Mozilla: Use instantaneous Object URL
+  // 2. Fallback for Desktop/Mozilla: Use instantaneous Object URL
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
