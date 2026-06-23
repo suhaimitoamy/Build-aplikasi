@@ -4225,18 +4225,21 @@ async function downloadBlob(blob, filename) {
     }
   }
 
-  // Fallback for Android WebView: Convert to Data URL instead of Blob URL
-  // because DownloadManager cannot handle blob:// URLs.
+  // Fallback for Android WebView: Use Data URL and Android Native Bridge
   const reader = new FileReader();
   reader.onloadend = () => {
     const dataUrl = reader.result;
-    const link = document.createElement("a");
-    link.href = dataUrl;
-    link.download = filename;
-    link.rel = "noopener";
-    document.body.append(link);
-    link.click();
-    link.remove();
+    if (window.Android && window.Android.saveBlob) {
+      window.Android.saveBlob(dataUrl, filename);
+    } else {
+      const link = document.createElement("a");
+      link.href = dataUrl;
+      link.download = filename;
+      link.rel = "noopener";
+      document.body.append(link);
+      link.click();
+      link.remove();
+    }
   };
   reader.readAsDataURL(blob);
 }

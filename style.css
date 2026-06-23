@@ -411,7 +411,7 @@ textarea:focus-visible {
   justify-content: flex-end;
   gap: 8px;
   position: relative;
-  z-index: 100;
+  z-index: 40;
   opacity: 1 !important;
   visibility: visible !important;
 }
