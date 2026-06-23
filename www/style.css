@@ -3872,14 +3872,6 @@ body {
     border-radius: 24px;
   }
 
-  .assistant-chat-bar {
-    grid-template-columns: 1fr;
-  }
-
-  .assistant-send-button {
-    width: 100%;
-  }
-
   .assistant-chat-log {
     min-height: 270px;
     max-height: 48vh;
