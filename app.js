@@ -4221,6 +4221,17 @@ async function importBackup(event) {
 }
 
 async function downloadBlob(blob, filename) {
+  // 1. Prioritize Android WebView Native Bridge to avoid Blob URL issues
+  if (window.Android && window.Android.saveBlob) {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      window.Android.saveBlob(reader.result, filename);
+    };
+    reader.readAsDataURL(blob);
+    return;
+  }
+
+  // 2. Try Native Share for mobile browsers
   const file = new File([blob], filename, { type: blob.type || "application/zip" });
   if (navigator.canShare?.({ files: [file] })) {
     try {
@@ -4231,23 +4242,16 @@ async function downloadBlob(blob, filename) {
     }
   }
 
-  // Fallback for Android WebView: Use Data URL and Android Native Bridge
-  const reader = new FileReader();
-  reader.onloadend = () => {
-    const dataUrl = reader.result;
-    if (window.Android && window.Android.saveBlob) {
-      window.Android.saveBlob(dataUrl, filename);
-    } else {
-      const link = document.createElement("a");
-      link.href = dataUrl;
-      link.download = filename;
-      link.rel = "noopener";
-      document.body.append(link);
-      link.click();
-      link.remove();
-    }
-  };
-  reader.readAsDataURL(blob);
+  // 3. Fallback for Desktop/Mozilla: Use instantaneous Object URL
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.rel = "noopener";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 function sanitizeFileName(value) {
