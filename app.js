@@ -4106,7 +4106,7 @@ async function exportBackup() {
   if (!window.JSZip) return window.showToast("JSZip belum termuat.");
   try {
     const zip = new window.JSZip();
-    zip.file("data.json", JSON.stringify({ version: BACKUP_VERSION, exportedAt: new Date().toISOString(), items: state.items, journals: state.journals, insightCache: state.insightCache }, null, 2));
+    zip.file("data.json", JSON.stringify({ version: BACKUP_VERSION, exportedAt: new Date().toISOString(), items: state.items, journals: state.journals, insightCache: state.insightCache, personalNotes: state.personalNotes }, null, 2));
     const folder = zip.folder("files");
     for (const item of state.items) {
       if (!item.fileId) continue;
@@ -4150,6 +4150,7 @@ async function importBackup(event) {
     const payload = JSON.parse(await zip.file("data.json").async("string"));
     const incomingItems = normalizeItems(payload.items || []);
     const incomingJournals = normalizeJournals(payload.journals || []);
+    const incomingNotes = payload.personalNotes || [];
     const existingById = new Map(state.items.map((item) => [item.id, item]));
     for (const item of incomingItems) existingById.set(item.id, item);
     for (const item of incomingItems) {
@@ -4201,11 +4202,16 @@ async function importBackup(event) {
         }
       }
     }
+    const existingNotesById = new Map(state.personalNotes.map((note) => [note.id, note]));
+    for (const note of incomingNotes) existingNotesById.set(note.id, note);
+
     state.items = [...existingById.values()];
     state.journals = [...existingJournalsById.values()];
+    state.personalNotes = [...existingNotesById.values()];
     state.insightCache = payload.insightCache || state.insightCache;
     saveItems();
     saveJournals();
+    saveNotes();
     saveInsightCache();
     render();
     window.showToast("Restore selesai.");
