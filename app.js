@@ -4222,7 +4222,29 @@ async function importBackup(event) {
 
 async function downloadBlob(blob, filename) {
   // 1. Prioritize Android WebView Native Bridge to avoid Blob URL issues
-  if (window.Android && window.Android.saveBlob) {
+  if (window.Android && window.Android.startFile) {
+    try {
+      window.showToast("Mempersiapkan unduhan...");
+      window.Android.startFile(filename);
+      const chunkSize = 1024 * 1024 * 2; // 2MB chunks
+      for (let offset = 0; offset < blob.size; offset += chunkSize) {
+        const chunk = blob.slice(offset, offset + chunkSize);
+        const base64 = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const dataUrl = reader.result;
+            resolve(dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl);
+          };
+          reader.readAsDataURL(chunk);
+        });
+        window.Android.appendFileChunk(base64);
+      }
+      window.Android.finishFile();
+    } catch (e) {
+      window.showToast("Gagal mengunduh file.");
+    }
+    return;
+  } else if (window.Android && window.Android.saveBlob) {
     const reader = new FileReader();
     reader.onloadend = () => {
       window.Android.saveBlob(reader.result, filename);
